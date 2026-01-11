@@ -1,16 +1,15 @@
 const { io } = require("socket.io-client");
 
-// Change if you later deploy
 const SERVER_URL = "http://localhost:4000";
 
+// Host socket
 const socket = io(SERVER_URL, {
-  transports: ["websocket"], // keeps it simple
+  transports: ["websocket"],
 });
 
 socket.on("connect", () => {
   console.log("✅ Connected as:", socket.id);
 
-  // Create a room
   socket.emit(
     "room:create",
     {
@@ -28,7 +27,7 @@ socket.on("connect", () => {
 
       const roomCode = res.roomCode;
 
-      // Simulate a second player joining using a second socket connection
+      // Second player socket
       const socket2 = io(SERVER_URL, { transports: ["websocket"] });
 
       socket2.on("connect", () => {
@@ -44,6 +43,16 @@ socket.on("connect", () => {
           { roomCode, name: "PlayerTwo", password: "secret123" },
           (joinRes) => {
             console.log("👤 room:join response (Player2):", joinRes);
+
+            if (joinRes?.ok) {
+              socket.emit("room:team:set", { roomCode, team: "blue" }, (r) => {
+                console.log("🔵 Host set team:", r);
+              });
+
+              socket2.emit("room:team:set", { roomCode, team: "red" }, (r) => {
+                console.log("🔴 Player2 set team:", r);
+              });
+            }
           }
         );
       });

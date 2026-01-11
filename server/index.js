@@ -68,6 +68,28 @@ io.on("connection", (socket) => {
     }
   });
 
+  socket.on("room:team:set", ({ roomCode, team }, cb) => {
+    try {
+      const room = getRoom(roomCode);
+      if (!room) return cb?.({ ok: false, error: "Room not found" });
+
+      const player = room.players[socket.id];
+      if (!player) return cb?.({ ok: false, error: "Player not in room" });
+
+      if (team !== "blue" && team !== "red") {
+        return cb?.({ ok: false, error: "Invalid team" });
+      }
+
+      player.team = team;
+
+      io.to(room.code).emit("room:state", sanitizeRoom(room));
+      cb?.({ ok: true });
+    } catch (err) {
+      console.error("room:team:set failed:", err);
+      cb?.({ ok: false, error: err?.message || "Failed to set team" });
+    }
+  });
+
   socket.on("disconnect", () => {
     console.log("Disconnected:", socket.id);
   });
