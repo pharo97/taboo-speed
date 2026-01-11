@@ -1,9 +1,9 @@
-const { createRoom, getRoom, addPlayer } = require("./rooms");
-
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const cors = require("cors");
+
+const { createRoom, getRoom, addPlayer, sanitizeRoom } = require("./rooms");
 
 const app = express();
 app.use(cors());
@@ -32,35 +32,40 @@ io.on("connection", (socket) => {
       addPlayer(room, player);
       socket.join(room.code);
 
-      io.to(room.code).emit("room:state", room);
-
+      io.to(room.code).emit("room:state", sanitizeRoom(room));
       cb?.({ ok: true, roomCode: room.code, playerId: player.id });
     } catch (err) {
-      cb?.({ ok: false, error: "Failed to create room" });
+      console.error("room:create failed:", err);
+      cb?.({ ok: false, error: err?.message || "Failed to create room" });
     }
   });
 
   socket.on("room:join", ({ roomCode, name, password }, cb) => {
-    const room = getRoom(roomCode);
-    if (!room) return cb?.({ ok: false, error: "Room not found" });
+    try {
+      const room = getRoom(roomCode);
+      if (!room) return cb?.({ ok: false, error: "Room not found" });
 
-    if (room.password !== password) {
-      return cb?.({ ok: false, error: "Wrong password" });
+      if (room.password !== password) {
+        return cb?.({ ok: false, error: "Wrong password" });
+      }
+
+      const player = {
+        id: socket.id,
+        name: (name || "Player").trim(),
+        team: null,
+        isHost: false,
+        connected: true,
+      };
+
+      addPlayer(room, player);
+      socket.join(room.code);
+
+      io.to(room.code).emit("room:state", sanitizeRoom(room));
+      cb?.({ ok: true, roomCode: room.code, playerId: player.id });
+    } catch (err) {
+      console.error("room:join failed:", err);
+      cb?.({ ok: false, error: err?.message || "Failed to join room" });
     }
-
-    const player = {
-      id: socket.id,
-      name: (name || "Player").trim(),
-      team: null,
-      isHost: false,
-      connected: true,
-    };
-
-    addPlayer(room, player);
-    socket.join(room.code);
-
-    io.to(room.code).emit("room:state", room);
-    cb?.({ ok: true, roomCode: room.code, playerId: player.id });
   });
 
   socket.on("disconnect", () => {
