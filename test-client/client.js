@@ -13,8 +13,11 @@ let player2 = null;
 let hostRoundRunning = false;
 let player2RoundRunning = false;
 
-// prevent double-start
+// prevent double-start at beginning
 let startRequested = false;
+
+// 🧨 mid-round double-start test flag
+let midRoundTriggered = false;
 
 // exit cleanup
 function shutdown(code = 0) {
@@ -105,14 +108,13 @@ function connectPlayer2() {
   player2.on("round:tick", (t) => {
     if (!player2RoundRunning) return;
     const sec = Math.ceil(t.remainingMs / 1000);
-    if (sec <= 0) return; // don't spam 0
+    if (sec <= 0) return;
     console.log("⏱ Player2 tick:", sec);
   });
 
   player2.on("round:ended", (e) => {
     player2RoundRunning = false;
     console.log("🏁 Round ended (player2)", e || "");
-    // Let host log too, then shutdown
     setTimeout(() => shutdown(0), 250);
   });
 
@@ -158,9 +160,22 @@ host.on("round:state", (payload) => {
 
 host.on("round:tick", (t) => {
   if (!hostRoundRunning) return;
-  const sec = Math.ceil(t.remainingMs / 1000);
-  if (sec <= 0) return; // don't spam 0
+
+  const remainingMs = t.remainingMs;
+  const sec = Math.ceil(remainingMs / 1000);
+  if (sec <= 0) return;
+
   console.log("⏱ Host tick:", sec);
+
+  // 🧨 TEST: try starting again mid-round (7-second window)
+  if (!midRoundTriggered && remainingMs <= 7000 && remainingMs > 6000) {
+    midRoundTriggered = true;
+    console.log("🧨 TEST: sending round:start again mid-round...");
+
+    host.emit("round:start", { roomCode }, (res) => {
+      console.log("🧨 mid-round round:start response:", res);
+    });
+  }
 });
 
 host.on("round:ended", (e) => {

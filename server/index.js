@@ -25,31 +25,32 @@ const io = new Server(httpServer, {
 
 /**
  * Runtime timer storage lives on the REAL room object (never sanitized).
- * We re-ensure it constantly because humans keep editing room shape mid-run.
  */
 function ensureRuntime(room) {
-  if (!room.runtime) {
-    room.runtime = { roundIntervalId: null, roundTimeoutId: null };
-  }
+  room.runtime ||= {
+    roundIntervalId: null,
+    roundTimeoutId: null,
+    roundRunning: false,
+  };
 }
 
 function clearRoundTimers(room) {
-  if (!room) return;
   ensureRuntime(room);
 
   if (room.runtime.roundIntervalId) {
     clearInterval(room.runtime.roundIntervalId);
     room.runtime.roundIntervalId = null;
   }
+
   if (room.runtime.roundTimeoutId) {
     clearTimeout(room.runtime.roundTimeoutId);
     room.runtime.roundTimeoutId = null;
   }
+
+  room.runtime.roundRunning = false;
 }
 
 function endRound(room) {
-  if (!room) return;
-
   clearRoundTimers(room);
 
   room.status = "lobby";
@@ -76,11 +77,11 @@ io.on("connection", (socket) => {
         id: socket.id,
         name: (name || "Player").trim(),
         team: null,
-        isHost: true, // ✅ host
+        isHost: true, // host on create
         connected: true,
       };
 
-      addPlayer(room, player); // addPlayer also sets hostPlayerId (fine)
+      addPlayer(room, player); // addPlayer also sets hostPlayerId for first player
       socket.join(room.code);
 
       io.to(room.code).emit("room:state", sanitizeRoom(room));
@@ -98,6 +99,7 @@ io.on("connection", (socket) => {
     try {
       const room = getRoom(roomCode);
       if (!room) return cb?.({ ok: false, error: "Room not found" });
+
       ensureRuntime(room);
 
       if (room.password !== password) {
@@ -159,19 +161,31 @@ io.on("connection", (socket) => {
       const player = room.players?.[socket.id];
       if (!player) return cb?.({ ok: false, error: "Player not in room" });
 
-      // ✅ Host check based on room.hostPlayerId (more reliable than player.isHost flags)
+      // host check: use hostPlayerId (most reliable)
       if (room.hostPlayerId !== socket.id) {
         return cb?.({ ok: false, error: "Only host can start" });
       }
 
       ensureRuntime(room);
 
-      // Stop any existing timers (prevents multiple intervals + spam)
-      clearRoundTimers(room);
+      // ✅ HARD BLOCK: if a round is already running AND not expired, reject.
+      const now = Date.now();
+      const endsAt = room.round?.endsAt ?? 0;
+
+      if (room.runtime.roundRunning && now < endsAt) {
+        return cb?.({ ok: false, error: "Round already running" });
+      }
+
+      // If state says "playing" but time is over, clean it up first.
+      if (room.status === "playing" && now >= endsAt && endsAt > 0) {
+        endRound(room);
+      }
+
+      // start fresh
+      room.runtime.roundRunning = true;
 
       const activeTeam = room.turn?.nextTeam || "blue";
 
-      // Pick clue giver: someone on active team, else host
       const playersArr = Object.values(room.players || {});
       const clueGiver =
         playersArr.find((p) => p.team === activeTeam) ||
@@ -180,9 +194,8 @@ io.on("connection", (socket) => {
 
       const startedAt = Date.now();
       const durationMs = (room.settings?.roundSeconds ?? 30) * 1000;
-      const endsAt = startedAt + durationMs;
+      const newEndsAt = startedAt + durationMs;
 
-      // Ensure round exists
       room.round ||= {
         number: 0,
         activeTeam: null,
@@ -197,7 +210,7 @@ io.on("connection", (socket) => {
       room.round.activeTeam = activeTeam;
       room.round.clueGiverId = clueGiver.id;
       room.round.startedAt = startedAt;
-      room.round.endsAt = endsAt;
+      room.round.endsAt = newEndsAt;
       room.round.board = generateBoard(24);
       room.round.guessed = {};
 
@@ -205,14 +218,13 @@ io.on("connection", (socket) => {
       room.turn ||= { nextTeam: "blue" };
       room.turn.nextTeam = activeTeam === "blue" ? "red" : "blue";
 
-      // Broadcast new state
       io.to(room.code).emit("room:state", sanitizeRoom(room));
       io.to(room.code).emit("round:state", {
         roomCode: room.code,
         round: room.round,
       });
 
-      // ✅ Create interval FIRST, store it AFTER (and make it self-destruct)
+      // Tick interval
       const intervalId = setInterval(() => {
         const remainingMs = Math.max(0, room.round.endsAt - Date.now());
 
@@ -222,12 +234,11 @@ io.on("connection", (socket) => {
         });
 
         if (remainingMs <= 0) {
-          clearInterval(intervalId); // self-destruct even if runtime tracking breaks
+          clearInterval(intervalId);
           endRound(room);
         }
       }, 1000);
 
-      ensureRuntime(room);
       room.runtime.roundIntervalId = intervalId;
 
       // Backup timeout
@@ -235,7 +246,6 @@ io.on("connection", (socket) => {
         endRound(room);
       }, durationMs + 50);
 
-      ensureRuntime(room);
       room.runtime.roundTimeoutId = timeoutId;
 
       cb?.({ ok: true, round: room.round });
@@ -245,14 +255,8 @@ io.on("connection", (socket) => {
     }
   });
 
-  // --------------------
-  // DISCONNECT
-  // --------------------
   socket.on("disconnect", () => {
     console.log("Disconnected:", socket.id);
-
-    // Optional: mark player disconnected in any room they were in
-    // (not required for your current test client)
   });
 });
 
