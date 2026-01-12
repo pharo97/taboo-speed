@@ -50,6 +50,16 @@ function clearRoundTimers(room) {
   room.runtime.roundRunning = false;
 }
 
+function isRoundRunning(room) {
+  return room?.status === "playing" && room?.runtime?.roundRunning === true;
+}
+
+function allTilesGuessed(room) {
+  const total = room?.round?.board?.length || 0;
+  const guessedCount = Object.keys(room?.round?.guessed || {}).length;
+  return total > 0 && guessedCount >= total;
+}
+
 function endRound(room) {
   clearRoundTimers(room);
 
@@ -60,6 +70,20 @@ function endRound(room) {
     roomCode: room.code,
     roundNumber: room.round?.number ?? 0,
   });
+}
+
+function endGame(room, winningTeam) {
+  clearRoundTimers(room);
+
+  room.status = "lobby";
+
+  io.to(room.code).emit("game:ended", {
+    roomCode: room.code,
+    winningTeam,
+    scores: room.scores,
+  });
+
+  io.to(room.code).emit("room:state", sanitizeRoom(room));
 }
 
 io.on("connection", (socket) => {
@@ -77,7 +101,7 @@ io.on("connection", (socket) => {
         id: socket.id,
         name: (name || "Player").trim(),
         team: null,
-        isHost: true, // host on create
+        isHost: true,
         connected: true,
       };
 
@@ -168,20 +192,29 @@ io.on("connection", (socket) => {
 
       ensureRuntime(room);
 
-      // ✅ HARD BLOCK: if a round is already running AND not expired, reject.
+      // ✅ HARD BLOCK: if round already running AND not expired, reject
       const now = Date.now();
-      const endsAt = room.round?.endsAt ?? 0;
+      const currentEndsAt = room.round?.endsAt ?? 0;
 
-      if (room.runtime.roundRunning && now < endsAt) {
+      if (
+        room.runtime.roundRunning &&
+        currentEndsAt > 0 &&
+        now < currentEndsAt
+      ) {
         return cb?.({ ok: false, error: "Round already running" });
       }
 
-      // If state says "playing" but time is over, clean it up first.
-      if (room.status === "playing" && now >= endsAt && endsAt > 0) {
+      // If playing but time is actually over, clean up first
+      if (
+        room.status === "playing" &&
+        currentEndsAt > 0 &&
+        now >= currentEndsAt
+      ) {
         endRound(room);
       }
 
-      // start fresh
+      // Start fresh timers/state
+      clearRoundTimers(room);
       room.runtime.roundRunning = true;
 
       const activeTeam = room.turn?.nextTeam || "blue";
@@ -194,7 +227,7 @@ io.on("connection", (socket) => {
 
       const startedAt = Date.now();
       const durationMs = (room.settings?.roundSeconds ?? 30) * 1000;
-      const newEndsAt = startedAt + durationMs;
+      const endsAt = startedAt + durationMs;
 
       room.round ||= {
         number: 0,
@@ -204,15 +237,17 @@ io.on("connection", (socket) => {
         endsAt: null,
         board: [],
         guessed: {},
+        clue: null,
       };
 
       room.round.number = (room.round.number || 0) + 1;
       room.round.activeTeam = activeTeam;
       room.round.clueGiverId = clueGiver.id;
       room.round.startedAt = startedAt;
-      room.round.endsAt = newEndsAt;
+      room.round.endsAt = endsAt;
       room.round.board = generateBoard(24);
       room.round.guessed = {};
+      room.round.clue = null;
 
       room.status = "playing";
       room.turn ||= { nextTeam: "blue" };
@@ -255,6 +290,117 @@ io.on("connection", (socket) => {
     }
   });
 
+  // --------------------
+  // CLUE SET (cluegiver only)
+  // --------------------
+  socket.on("clue:set", ({ roomCode, text, count }, cb) => {
+    try {
+      const room = getRoom(roomCode);
+      if (!room) return cb?.({ ok: false, error: "Room not found" });
+      if (!isRoundRunning(room))
+        return cb?.({ ok: false, error: "No active round" });
+
+      const player = room.players?.[socket.id];
+      if (!player) return cb?.({ ok: false, error: "Player not in room" });
+
+      if (room.round?.clueGiverId !== socket.id) {
+        return cb?.({ ok: false, error: "Only cluegiver can set clue" });
+      }
+
+      const cleanText = (text || "").trim().slice(0, 60);
+      const cleanCount = Math.max(0, Math.min(10, Number(count) || 0));
+
+      room.round.clue = {
+        text: cleanText,
+        count: cleanCount,
+        setAt: Date.now(),
+      };
+
+      io.to(room.code).emit("room:state", sanitizeRoom(room));
+      io.to(room.code).emit("clue:state", {
+        roomCode: room.code,
+        clue: room.round.clue,
+        clueGiverId: room.round.clueGiverId,
+        activeTeam: room.round.activeTeam,
+      });
+
+      cb?.({ ok: true });
+    } catch (err) {
+      console.error("clue:set failed:", err);
+      cb?.({ ok: false, error: err?.message || "Failed to set clue" });
+    }
+  });
+
+  // --------------------
+  // GUESS SUBMIT (active team only)
+  // --------------------
+  socket.on("guess:submit", ({ roomCode, tileId }, cb) => {
+    try {
+      const room = getRoom(roomCode);
+      if (!room) return cb?.({ ok: false, error: "Room not found" });
+      if (!isRoundRunning(room))
+        return cb?.({ ok: false, error: "No active round" });
+
+      const player = room.players?.[socket.id];
+      if (!player) return cb?.({ ok: false, error: "Player not in room" });
+
+      const activeTeam = room.round?.activeTeam;
+      if (player.team !== activeTeam) {
+        return cb?.({ ok: false, error: "Not your team's turn" });
+      }
+
+      const board = room.round?.board || [];
+      const tile = board.find((t) => t.id === tileId);
+      if (!tile) return cb?.({ ok: false, error: "Tile not found" });
+
+      room.round.guessed ||= {};
+      if (room.round.guessed[tileId]) {
+        return cb?.({ ok: false, error: "Already guessed" });
+      }
+
+      // Mark guessed
+      room.round.guessed[tileId] = {
+        by: socket.id,
+        team: activeTeam,
+        at: Date.now(),
+        points: tile.points,
+      };
+
+      // Score
+      room.scores ||= { blue: 0, red: 0 };
+      room.scores[activeTeam] += tile.points;
+
+      io.to(room.code).emit("room:state", sanitizeRoom(room));
+      io.to(room.code).emit("guess:result", {
+        roomCode: room.code,
+        ok: true,
+        tileId,
+        team: activeTeam,
+        points: tile.points,
+        scores: room.scores,
+      });
+
+      // Win condition
+      const target = room.settings?.targetScore ?? 300;
+      if (room.scores[activeTeam] >= target) {
+        return endGame(room, activeTeam);
+      }
+
+      // End round if board complete
+      if (allTilesGuessed(room)) {
+        return endRound(room);
+      }
+
+      cb?.({ ok: true, points: tile.points, scores: room.scores });
+    } catch (err) {
+      console.error("guess:submit failed:", err);
+      cb?.({ ok: false, error: err?.message || "Failed to submit guess" });
+    }
+  });
+
+  // --------------------
+  // DISCONNECT
+  // --------------------
   socket.on("disconnect", () => {
     console.log("Disconnected:", socket.id);
   });
