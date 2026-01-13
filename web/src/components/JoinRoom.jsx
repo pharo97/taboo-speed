@@ -1,68 +1,44 @@
-// src/components/JoinRoom.jsx
+// web/src/components/JoinRoom.jsx
 import { useState } from "react";
 
 export default function JoinRoom({ onJoin, disabled }) {
   const [roomCodeInput, setRoomCodeInput] = useState("");
   const [name, setName] = useState("");
-  const [password, setPassword] = useState("");
 
   function submit(e) {
     e.preventDefault();
     if (disabled) return;
 
     const rc = roomCodeInput.trim().toUpperCase();
-    const nm = name.trim(); // allow blank, server will default to "Player"
-    const pw = password.trim().toUpperCase();
+    const nm = name.trim();
 
-    if (!rc || !pw) return;
+    if (!rc) return;
 
-    onJoin({ roomCodeInput: rc, name: nm, password: pw });
+    onJoin({ roomCodeInput: rc, name: nm || "Player" });
 
-    // keep room code, clear the rest
+    // keep room code so they can retry quickly
     setName("");
-    setPassword("");
   }
 
   return (
-    <div
-      style={{
-        border: "1px solid #ddd",
-        padding: 12,
-        marginBottom: 12,
-        borderRadius: 10,
-      }}
-    >
-      <h3 style={{ marginTop: 0, marginBottom: 10 }}>Join Game</h3>
+    <div style={{ border: "1px solid #ddd", padding: 12, marginBottom: 12 }}>
+      <h3 style={{ marginTop: 0 }}>Join Game</h3>
 
       <form onSubmit={submit} style={{ display: "grid", gap: 8 }}>
         <input
           value={roomCodeInput}
-          onChange={(e) => setRoomCodeInput(e.target.value.toUpperCase())}
-          placeholder="Room Code (ABC123)"
+          onChange={(e) => setRoomCodeInput(e.target.value)}
+          placeholder="Room Code (e.g. TF8QGR)"
           autoCapitalize="characters"
           spellCheck={false}
           disabled={!!disabled}
-          maxLength={12}
-          style={monoInput}
-        />
-
-        <input
-          value={password}
-          onChange={(e) => setPassword(e.target.value.toUpperCase())}
-          placeholder="Password (A1B2C3)"
-          autoCapitalize="characters"
-          spellCheck={false}
-          disabled={!!disabled}
-          maxLength={12}
-          style={monoInput}
         />
 
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Your name (optional)"
+          placeholder="Your Name (optional)"
           disabled={!!disabled}
-          maxLength={40}
         />
 
         <button type="submit" disabled={!!disabled}>
@@ -70,15 +46,9 @@ export default function JoinRoom({ onJoin, disabled }) {
         </button>
 
         <div style={{ fontSize: 12, opacity: 0.75 }}>
-          You need the room code + password. If you still mess it up, that’s
-          between you and God.
+          One code. One job. Humans will still mess it up.
         </div>
       </form>
     </div>
   );
 }
-
-const monoInput = {
-  fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-  letterSpacing: 1,
-};

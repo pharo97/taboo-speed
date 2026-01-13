@@ -5,13 +5,7 @@ const { Server } = require("socket.io");
 const cors = require("cors");
 const crypto = require("crypto");
 
-const {
-  createRoom,
-  getRoom,
-  sanitizeRoom,
-  generateBoard,
-  rooms,
-} = require("./rooms");
+const { createRoom, getRoom, generateBoard, rooms } = require("./rooms");
 
 const PORT = process.env.PORT || 4000;
 
@@ -32,9 +26,14 @@ function cleanupInactiveRooms() {
   const THIRTY_MINUTES = 30 * 60 * 1000;
 
   for (const [code, room] of Object.entries(rooms)) {
+    ensureIdentity(room);
+    ensureRuntime(room);
+    ensureRound(room);
+
     const allDisconnected = Object.values(room.playersByToken || {}).every(
       (p) => !p.connected
     );
+
     const inactive =
       now - (room.lastActivity || room.createdAt) > THIRTY_MINUTES;
 
@@ -96,7 +95,6 @@ function ensureIdentity(room) {
 function ensureSettings(room) {
   room.settings ||= { roundSeconds: 30, targetScore: 300 };
 
-  // sanity defaults if something weird got stored
   if (typeof room.settings.roundSeconds !== "number")
     room.settings.roundSeconds = 30;
   if (typeof room.settings.targetScore !== "number")
@@ -183,7 +181,127 @@ function allTilesGuessed(room) {
 }
 
 // --------------------
-// Round state privacy - NEW LOGIC
+// Host transfer logic
+// --------------------
+function getConnectedPlayerTokens(room, excludeToken = null) {
+  ensureIdentity(room);
+  return Object.entries(room.playersByToken || {})
+    .filter(
+      ([token, p]) => p && p.connected && p.socketId && token !== excludeToken
+    )
+    .map(([token]) => token);
+}
+
+function pickRandom(arr) {
+  if (!arr || arr.length === 0) return null;
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function setHost(room, newHostToken) {
+  ensureIdentity(room);
+
+  const oldHostToken = room.hostPlayerToken;
+  if (oldHostToken && room.playersByToken[oldHostToken]) {
+    room.playersByToken[oldHostToken].isHost = false;
+  }
+
+  room.hostPlayerToken = newHostToken || null;
+
+  if (newHostToken && room.playersByToken[newHostToken]) {
+    room.playersByToken[newHostToken].isHost = true;
+  }
+
+  room.lastActivity = Date.now();
+}
+
+function ensureValidHost(room) {
+  ensureIdentity(room);
+
+  // If host token is missing or no longer exists, try to assign
+  if (!room.hostPlayerToken || !room.playersByToken[room.hostPlayerToken]) {
+    const candidate = pickRandom(getConnectedPlayerTokens(room));
+    if (candidate) setHost(room, candidate);
+    return;
+  }
+
+  // Host exists but disconnected: transfer to random connected player
+  const host = room.playersByToken[room.hostPlayerToken];
+  if (!host.connected || !host.socketId) {
+    const candidate = pickRandom(
+      getConnectedPlayerTokens(room, room.hostPlayerToken)
+    );
+    if (candidate) setHost(room, candidate);
+  }
+}
+
+function maybeTransferHostIfNeeded(room, departingToken = null) {
+  ensureIdentity(room);
+
+  // If the departing player is host (or host is invalid), transfer to random connected
+  const hostToken = room.hostPlayerToken;
+  const hostMissing = !hostToken || !room.playersByToken[hostToken];
+
+  if (hostMissing || hostToken === departingToken) {
+    const candidate = pickRandom(
+      getConnectedPlayerTokens(room, departingToken)
+    );
+    if (candidate) setHost(room, candidate);
+    // else: no connected players, keep host as-is (or null) and allow rejoin later
+  } else {
+    // host exists but might be disconnected: keep it valid
+    ensureValidHost(room);
+  }
+}
+
+// --------------------
+// Room sync payload
+// (kept compatible with current frontend expectations)
+// --------------------
+function buildRoomSyncPayload(room) {
+  ensureIdentity(room);
+  ensureScores(room);
+  ensureTurn(room);
+  ensureRound(room);
+  ensureSettings(room);
+  ensureValidHost(room);
+
+  const safePlayersByToken = {};
+  for (const [token, p] of Object.entries(room.playersByToken || {})) {
+    safePlayersByToken[token] = {
+      token, // kept for current UI; tighten later
+      name: p.name,
+      team: p.team,
+      isHost: !!p.isHost,
+      connected: !!p.connected,
+      lastSeenAt: p.lastSeenAt,
+    };
+  }
+
+  return {
+    code: room.code,
+    status: room.status,
+    settings: room.settings,
+    scores: room.scores,
+    turn: room.turn,
+    hostPlayerToken: room.hostPlayerToken, // not used by UI yet, but useful
+
+    round: {
+      number: room.round.number,
+      activeTeam: room.round.activeTeam,
+      startedAt: room.round.startedAt,
+      endsAt: room.round.endsAt,
+      clueGiverId: room.round.clueGiverId,
+      clueGiverToken: room.round.clueGiverToken,
+      clue: room.round.clue,
+      guessed: room.round.guessed,
+    },
+
+    playersByToken: safePlayersByToken,
+  };
+}
+
+// --------------------
+// Round state privacy
 // --------------------
 function buildRoundPayload(room, socketId) {
   ensureRound(room);
@@ -191,7 +309,6 @@ function buildRoundPayload(room, socketId) {
   const isClueGiver = socketId && socketId === clueGiverSocketId;
 
   if (isClueGiver) {
-    // Cluegiver sees FULL board with all words and points
     return {
       roomCode: room.code,
       round: {
@@ -201,37 +318,36 @@ function buildRoundPayload(room, socketId) {
         clueGiverToken: room.round.clueGiverToken,
         startedAt: room.round.startedAt,
         endsAt: room.round.endsAt,
-        board: room.round.board, // FULL board
+        board: room.round.board,
         guessed: room.round.guessed,
         clue: room.round.clue,
       },
       role: "cluegiver",
     };
-  } else {
-    // Everyone else sees NO words, only guess history
-    return {
-      roomCode: room.code,
-      round: {
-        number: room.round.number,
-        activeTeam: room.round.activeTeam,
-        clueGiverId: room.round.clueGiverId,
-        clueGiverToken: room.round.clueGiverToken,
-        startedAt: room.round.startedAt,
-        endsAt: room.round.endsAt,
-        board: [], // EMPTY
-        guessed: room.round.guessed,
-        clue: room.round.clue,
-      },
-      role: "guesser",
-    };
   }
+
+  return {
+    roomCode: room.code,
+    round: {
+      number: room.round.number,
+      activeTeam: room.round.activeTeam,
+      clueGiverId: room.round.clueGiverId,
+      clueGiverToken: room.round.clueGiverToken,
+      startedAt: room.round.startedAt,
+      endsAt: room.round.endsAt,
+      board: [],
+      guessed: room.round.guessed,
+      clue: room.round.clue,
+    },
+    role: "guesser",
+  };
 }
 
 // --------------------
 // Emitters
 // --------------------
 function emitRoomSync(room, socketId = null) {
-  const payload = sanitizeRoom(room);
+  const payload = buildRoomSyncPayload(room);
   if (socketId) io.to(socketId).emit("room:sync", payload);
   else io.to(room.code).emit("room:sync", payload);
 }
@@ -255,8 +371,7 @@ function emitRoundSync(room, socketId = null) {
       .except(clueGiverSocketId)
       .emit("round:sync", guesserPayload);
   } else {
-    const payload = buildRoundPayload(room, null);
-    io.to(room.code).emit("round:sync", payload);
+    io.to(room.code).emit("round:sync", buildRoundPayload(room, null));
   }
 }
 
@@ -344,19 +459,75 @@ function endGame(room, winningTeam) {
 }
 
 // --------------------
+// Admin actions (kick, transfer host)
+// --------------------
+function requireHost(room, socket) {
+  ensureIdentity(room);
+  const player = getPlayerBySocket(room, socket.id);
+  if (!player) return { ok: false, error: "Player not in room" };
+  if (room.hostPlayerToken !== player.token)
+    return { ok: false, error: "Only host can do that" };
+  return { ok: true, player };
+}
+
+function kickPlayer(room, targetToken, reason = "kicked") {
+  ensureIdentity(room);
+
+  const target = room.playersByToken[targetToken];
+  if (!target) return null;
+
+  // If kicking host, host will transfer away first
+  maybeTransferHostIfNeeded(room, targetToken);
+
+  // Unbind socket mapping if connected
+  if (target.socketId) {
+    const sid = target.socketId;
+    delete room.tokenBySocketId[sid];
+  }
+
+  // Tell them they got kicked (optional, harmless)
+  if (target.socketId) {
+    io.to(target.socketId).emit("room:kicked", { roomCode: room.code, reason });
+  }
+
+  // Remove player record
+  delete room.playersByToken[targetToken];
+
+  room.lastActivity = Date.now();
+
+  // If they were cluegiver mid-round, handle gracefully
+  if (isRoundRunning(room) && room.round?.clueGiverToken === targetToken) {
+    room.round.clueGiverId = null;
+    room.round.clueGiverToken = null;
+
+    if (!room.round.clue) {
+      const newGiver = pickNewClueGiver(room);
+      if (newGiver) emitRoundSync(room);
+      else endRound(room, "disconnected");
+    } else {
+      emitRoundSync(room);
+    }
+  }
+
+  return target;
+}
+
+// --------------------
 // Socket handlers
 // --------------------
 io.on("connection", (socket) => {
   console.log("Connected:", socket.id);
 
+  // CREATE ROOM
   socket.on("room:create", ({ name, settings }, cb) => {
     try {
-      const room = createRoom({ settings }); // no password
+      const room = createRoom({ settings });
       ensureRuntime(room);
       ensureRound(room);
       ensureScores(room);
       ensureTurn(room);
       ensureIdentity(room);
+      ensureSettings(room);
 
       const token = newToken();
 
@@ -370,7 +541,7 @@ io.on("connection", (socket) => {
         lastSeenAt: Date.now(),
       };
 
-      room.hostPlayerToken = token;
+      setHost(room, token);
 
       bindSocket(room, socket.id, token);
       socket.join(room.code);
@@ -378,26 +549,59 @@ io.on("connection", (socket) => {
 
       emitRoomSync(room);
 
-      if (cb) cb({ ok: true, roomCode: room.code, playerToken: token });
+      cb?.({ ok: true, roomCode: room.code, playerToken: token });
     } catch (err) {
       console.error("room:create failed:", err);
-      if (cb) cb({ ok: false, error: err?.message || "Failed to create room" });
+      cb?.({ ok: false, error: err?.message || "Failed to create room" });
     }
   });
 
-  socket.on("room:join", ({ roomCode, name }, cb) => {
+  // LEAVE ROOM
+  socket.on("room:leave", ({ roomCode }, cb) => {
     try {
       const room = getRoom(roomCode);
-      if (!room) {
-        if (cb) return cb({ ok: false, error: "Room not found" });
-        return;
-      }
+      if (!room) return cb?.({ ok: false, error: "Room not found" });
+
+      ensureIdentity(room);
+
+      const playerToken = room.tokenBySocketId?.[socket.id];
+      if (!playerToken) return cb?.({ ok: false, error: "Not in room" });
+
+      // mark disconnected + unbind
+      unbindSocket(room, socket.id);
+
+      // if host left, transfer host to random connected player
+      maybeTransferHostIfNeeded(room, playerToken);
+
+      // leave socket.io room
+      socket.leave(room.code);
+      socket.data.roomCode = null;
+
+      room.lastActivity = Date.now();
+      emitRoomSync(room);
+
+      cb?.({ ok: true });
+    } catch (err) {
+      console.error("room:leave failed:", err);
+      cb?.({ ok: false, error: err?.message || "Failed to leave" });
+    }
+  });
+
+  // JOIN ROOM
+  socket.on("room:join", ({ roomCode, name }, cb) => {
+    try {
+      const rc = String(roomCode || "")
+        .trim()
+        .toUpperCase();
+      const room = getRoom(rc);
+      if (!room) return cb?.({ ok: false, error: "Room not found" });
 
       ensureRuntime(room);
       ensureRound(room);
       ensureScores(room);
       ensureTurn(room);
       ensureIdentity(room);
+      ensureSettings(room);
 
       const token = newToken();
 
@@ -415,18 +619,25 @@ io.on("connection", (socket) => {
       socket.join(room.code);
       socket.data.roomCode = room.code;
 
+      // if room has no valid host, assign one
+      ensureValidHost(room);
+
       emitRoomSync(room);
 
-      if (cb) cb({ ok: true, roomCode: room.code, playerToken: token });
+      cb?.({ ok: true, roomCode: room.code, playerToken: token });
     } catch (err) {
       console.error("room:join failed:", err);
-      if (cb) cb({ ok: false, error: err?.message || "Failed to join room" });
+      cb?.({ ok: false, error: err?.message || "Failed to join room" });
     }
   });
 
+  // REJOIN ROOM
   socket.on("room:rejoin", ({ roomCode, playerToken, name }, cb) => {
     try {
-      const room = getRoom(roomCode);
+      const rc = String(roomCode || "")
+        .trim()
+        .toUpperCase();
+      const room = getRoom(rc);
       if (!room) return cb?.({ ok: false, error: "Room not found" });
 
       ensureRuntime(room);
@@ -446,6 +657,9 @@ io.on("connection", (socket) => {
       socket.join(room.code);
       socket.data.roomCode = room.code;
 
+      // If host is missing/disconnected, fix it
+      ensureValidHost(room);
+
       cb?.({ ok: true, roomCode: room.code, playerToken });
 
       emitRoomSync(room, socket.id);
@@ -463,21 +677,20 @@ io.on("connection", (socket) => {
     }
   });
 
-  // ✅ NEW: Host-only settings update (lobby only)
+  // HOST-ONLY SETTINGS (lobby only)
   socket.on("room:settings:set", ({ roomCode, settings }, cb) => {
     try {
-      const room = getRoom(roomCode);
+      const rc = String(roomCode || "")
+        .trim()
+        .toUpperCase();
+      const room = getRoom(rc);
       if (!room) return cb?.({ ok: false, error: "Room not found" });
 
       ensureIdentity(room);
       ensureSettings(room);
 
-      const player = getPlayerBySocket(room, socket.id);
-      if (!player) return cb?.({ ok: false, error: "Player not in room" });
-
-      if (room.hostPlayerToken !== player.token) {
-        return cb?.({ ok: false, error: "Only host can change settings" });
-      }
+      const gate = requireHost(room, socket);
+      if (!gate.ok) return cb?.(gate);
 
       if (room.status !== "lobby") {
         return cb?.({
@@ -486,11 +699,8 @@ io.on("connection", (socket) => {
         });
       }
 
-      const roundSecondsRaw = settings?.roundSeconds;
-      const targetScoreRaw = settings?.targetScore;
-
-      const roundSeconds = Number(roundSecondsRaw);
-      const targetScore = Number(targetScoreRaw);
+      const roundSeconds = Number(settings?.roundSeconds);
+      const targetScore = Number(settings?.targetScore);
 
       if (
         !Number.isFinite(roundSeconds) ||
@@ -522,7 +732,10 @@ io.on("connection", (socket) => {
 
   socket.on("room:team:set", ({ roomCode, team }, cb) => {
     try {
-      const room = getRoom(roomCode);
+      const rc = String(roomCode || "")
+        .trim()
+        .toUpperCase();
+      const room = getRoom(rc);
       if (!room) return cb?.({ ok: false, error: "Room not found" });
 
       ensureIdentity(room);
@@ -547,9 +760,72 @@ io.on("connection", (socket) => {
     }
   });
 
+  // NEW: HOST KICK (UI can add later)
+  socket.on("room:player:kick", ({ roomCode, targetToken }, cb) => {
+    try {
+      const rc = String(roomCode || "")
+        .trim()
+        .toUpperCase();
+      const room = getRoom(rc);
+      if (!room) return cb?.({ ok: false, error: "Room not found" });
+
+      ensureIdentity(room);
+
+      const gate = requireHost(room, socket);
+      if (!gate.ok) return cb?.(gate);
+
+      if (!targetToken || !room.playersByToken[targetToken]) {
+        return cb?.({ ok: false, error: "Invalid target" });
+      }
+
+      // don't kick yourself, because humans panic
+      if (targetToken === room.hostPlayerToken) {
+        return cb?.({ ok: false, error: "Host cannot kick themselves" });
+      }
+
+      const kicked = kickPlayer(room, targetToken, "kicked");
+      emitRoomSync(room);
+      cb?.({ ok: true, kicked: kicked?.name || "player" });
+    } catch (err) {
+      console.error("room:player:kick failed:", err);
+      cb?.({ ok: false, error: err?.message || "Failed to kick" });
+    }
+  });
+
+  // NEW: HOST TRANSFER (UI can add later)
+  socket.on("room:host:transfer", ({ roomCode, targetToken }, cb) => {
+    try {
+      const rc = String(roomCode || "")
+        .trim()
+        .toUpperCase();
+      const room = getRoom(rc);
+      if (!room) return cb?.({ ok: false, error: "Room not found" });
+
+      ensureIdentity(room);
+
+      const gate = requireHost(room, socket);
+      if (!gate.ok) return cb?.(gate);
+
+      if (!targetToken || !room.playersByToken[targetToken]) {
+        return cb?.({ ok: false, error: "Invalid target" });
+      }
+
+      setHost(room, targetToken);
+      emitRoomSync(room);
+      cb?.({ ok: true });
+    } catch (err) {
+      console.error("room:host:transfer failed:", err);
+      cb?.({ ok: false, error: err?.message || "Failed to transfer host" });
+    }
+  });
+
+  // HOST STARTS ROUNDS (no conditions, as requested)
   socket.on("round:start", ({ roomCode }, cb) => {
     try {
-      const room = getRoom(roomCode);
+      const rc = String(roomCode || "")
+        .trim()
+        .toUpperCase();
+      const room = getRoom(rc);
       if (!room) return cb?.({ ok: false, error: "Room not found" });
 
       ensureRuntime(room);
@@ -559,13 +835,11 @@ io.on("connection", (socket) => {
       ensureIdentity(room);
       ensureSettings(room);
 
-      const player = getPlayerBySocket(room, socket.id);
-      if (!player) return cb?.({ ok: false, error: "Player not in room" });
+      // Make sure host is valid before we check host-ness
+      ensureValidHost(room);
 
-      // ✅ Option 1: only host starts rounds. Always.
-      if (room.hostPlayerToken !== player.token) {
-        return cb?.({ ok: false, error: "Only host can start" });
-      }
+      const gate = requireHost(room, socket);
+      if (!gate.ok) return cb?.(gate);
 
       const now = Date.now();
       const currentEndsAt = room.round?.endsAt ?? 0;
@@ -599,7 +873,7 @@ io.on("connection", (socket) => {
           (p) => p.team === activeTeam && p.connected && p.socketId
         ) ||
         (hostPlayer?.connected && hostPlayer?.socketId ? hostPlayer : null) ||
-        player;
+        gate.player;
 
       const startedAt = Date.now();
       const durationMs = (room.settings?.roundSeconds ?? 30) * 1000;
@@ -654,7 +928,10 @@ io.on("connection", (socket) => {
 
   socket.on("clue:set", ({ roomCode, text }, cb) => {
     try {
-      const room = getRoom(roomCode);
+      const rc = String(roomCode || "")
+        .trim()
+        .toUpperCase();
+      const room = getRoom(rc);
       if (!room) return cb?.({ ok: false, error: "Room not found" });
 
       if (!isRoundRunning(room))
@@ -685,9 +962,13 @@ io.on("connection", (socket) => {
     }
   });
 
+  // TEXT-BASED GUESSING
   socket.on("guess:text", ({ roomCode, text }, cb) => {
     try {
-      const room = getRoom(roomCode);
+      const rc = String(roomCode || "")
+        .trim()
+        .toUpperCase();
+      const room = getRoom(rc);
       if (!room) return cb?.({ ok: false, error: "Room not found" });
 
       if (!isRoundRunning(room))
@@ -696,6 +977,7 @@ io.on("connection", (socket) => {
       ensureRound(room);
       ensureScores(room);
       ensureIdentity(room);
+      ensureSettings(room);
 
       const player = getPlayerBySocket(room, socket.id);
       if (!player) return cb?.({ ok: false, error: "Player not in room" });
@@ -768,7 +1050,6 @@ io.on("connection", (socket) => {
       const roomCodesToCheck = [];
 
       if (preferredRoomCode) roomCodesToCheck.push(preferredRoomCode);
-
       for (const c of Object.keys(rooms || {})) {
         if (c !== preferredRoomCode) roomCodesToCheck.push(c);
       }
@@ -781,10 +1062,16 @@ io.on("connection", (socket) => {
         ensureRuntime(room);
         ensureRound(room);
 
-        if (!room.tokenBySocketId?.[socket.id]) continue;
+        const token = room.tokenBySocketId?.[socket.id];
+        if (!token) continue;
 
+        // mark disconnected + unbind
         unbindSocket(room, socket.id);
 
+        // if host disconnected, transfer host randomly
+        maybeTransferHostIfNeeded(room, token);
+
+        // if cluegiver disconnected mid-round, handle as before
         if (isRoundRunning(room) && room.round?.clueGiverId === socket.id) {
           room.round.clueGiverId = null;
 

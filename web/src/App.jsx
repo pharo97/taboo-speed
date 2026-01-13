@@ -55,10 +55,18 @@ export default function App() {
     setEndedInfo(null);
   }
 
-  // Hard-leave: disconnect socket, wipe identity, create fresh socket
+  // Hard-leave: tell server (optional), disconnect socket, wipe identity, create fresh socket
   function leaveRoom() {
     pushLog("🚪 leaving room...");
     leavingRef.current = true;
+
+    // optional but smart: tell backend we’re leaving
+    try {
+      const rc = localStorage.getItem("roomCode") || roomCode;
+      if (rc) socket.emit("room:leave", { roomCode: rc }, () => {});
+    } catch {
+      // ignore
+    }
 
     try {
       socket.disconnect();
@@ -90,21 +98,36 @@ export default function App() {
       pushLog(`✅ connected: ${socket.id}`);
 
       // auto rejoin if we have identity
-      if (roomCode && playerToken) {
-        socket.emit("room:rejoin", { roomCode, playerToken }, (resp) => {
-          pushLog(`🔁 room:rejoin ok=${resp?.ok}`);
-          if (!resp?.ok) resetLocalIdentity();
-        });
+      const rc = localStorage.getItem("roomCode") || "";
+      const pt = localStorage.getItem("playerToken") || "";
+
+      if (rc && pt) {
+        // keep state in sync with storage (important)
+        if (rc !== roomCode) setRoomCode(rc);
+        if (pt !== playerToken) setPlayerToken(pt);
+
+        socket.emit(
+          "room:rejoin",
+          { roomCode: rc, playerToken: pt },
+          (resp) => {
+            pushLog(`🔁 room:rejoin ok=${resp?.ok}`);
+            if (!resp?.ok) resetLocalIdentity();
+          }
+        );
       }
     }
 
-    function onDisconnect() {
+    function onDisconnect(reason) {
       setConnected(false);
       setSocketId("");
 
       if (!leavingRef.current) {
-        pushLog("❌ disconnected");
+        pushLog(`❌ disconnected (${reason || "no reason"})`);
       }
+    }
+
+    function onConnectError(err) {
+      pushLog(`🔥 connect_error: ${err?.message || String(err)}`);
     }
 
     function onRoomSync(payload) {
@@ -154,13 +177,14 @@ export default function App() {
       );
     }
 
-    // legacy server event (ok to keep)
     function onGuessApplied(payload) {
       pushLog(`✅ guess:applied tile=${payload?.tileId} +${payload?.points}`);
     }
 
     socket.on("connect", onConnect);
     socket.on("disconnect", onDisconnect);
+    socket.on("connect_error", onConnectError);
+
     socket.on("room:sync", onRoomSync);
     socket.on("round:sync", onRoundSync);
     socket.on("clue:sync", onClueSync);
@@ -170,10 +194,11 @@ export default function App() {
     socket.on("guess:correct", onGuessCorrect);
     socket.on("guess:applied", onGuessApplied);
 
-    // cleanup listeners + disconnect this socket instance when it gets replaced
     return () => {
       socket.off("connect", onConnect);
       socket.off("disconnect", onDisconnect);
+      socket.off("connect_error", onConnectError);
+
       socket.off("room:sync", onRoomSync);
       socket.off("round:sync", onRoundSync);
       socket.off("clue:sync", onClueSync);
@@ -183,13 +208,11 @@ export default function App() {
       socket.off("guess:correct", onGuessCorrect);
       socket.off("guess:applied", onGuessApplied);
 
-      try {
-        socket.disconnect();
-      } catch {
-        // ignore
-      }
+      // IMPORTANT: do NOT disconnect here.
+      // We only disconnect when we intentionally leaveRoom() or replace socket instance.
     };
-  }, [socket, roomCode, playerToken]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socket]);
 
   // --- actions
   function createRoom() {
@@ -258,6 +281,42 @@ export default function App() {
     });
   }
 
+  function kickPlayer(playerTokenToKick) {
+    if (!roomCode) return;
+    socket.emit(
+      "room:kick",
+      { roomCode, playerToken: playerTokenToKick },
+      (resp) => {
+        pushLog(`🦵 kick ok=${resp?.ok}`);
+        if (!resp?.ok) pushLog(`❌ kick error: ${resp?.error || "unknown"}`);
+      }
+    );
+  }
+
+  function transferHost(playerTokenToPromote) {
+    if (!roomCode) return;
+    socket.emit(
+      "room:host:transfer",
+      { roomCode, playerToken: playerTokenToPromote },
+      (resp) => {
+        pushLog(`👑 host transfer ok=${resp?.ok}`);
+        if (!resp?.ok)
+          pushLog(`❌ transfer error: ${resp?.error || "unknown"}`);
+      }
+    );
+  }
+
+  function updateSettings(settings) {
+    if (!roomCode) return;
+
+    socket.emit("room:settings:set", { roomCode, settings }, (resp) => {
+      pushLog(`⚙️ settings:set ok=${resp?.ok}`);
+      if (!resp?.ok) {
+        pushLog(`❌ settings error: ${resp?.error || "unknown"}`);
+      }
+    });
+  }
+
   const players = Object.values(room?.playersByToken || {});
   const me = playerToken ? room?.playersByToken?.[playerToken] : null;
   const isHost = !!me?.isHost;
@@ -293,11 +352,21 @@ export default function App() {
             />
           )}
 
-          {inRoom && <PlayerList players={players} myToken={playerToken} />}
+          {inRoom && (
+            <PlayerList
+              players={players}
+              myToken={playerToken}
+              isHost={isHost}
+              onKick={kickPlayer}
+              onMakeHost={transferHost}
+            />
+          )}
 
           {inRoom && isHost && (
             <HostControls
               onStartRound={startRound}
+              onUpdateSettings={updateSettings}
+              currentSettings={room?.settings}
               disabled={room?.status === "playing"}
             />
           )}
