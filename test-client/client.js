@@ -1,624 +1,367 @@
-// test-client/client.js
+/* test-client/client.js */
 const { io } = require("socket.io-client");
 
-const SERVER_URL = "http://localhost:4000";
-const SETTINGS = { targetScore: 9999, roundSeconds: 12 };
+const SERVER_URL = process.env.SERVER_URL || "http://localhost:4000";
 
-const host = io(SERVER_URL, { transports: ["websocket"] });
-let player2 = null;
-
-let roomCode = null;
-
-let hostToken = null;
-let player2Token = null;
-
-let hostState = null;
-let player2State = null;
-
-let roundRunning = false;
-let activeTeam = null;
-let clueGiverId = null;
-let clueGiverToken = null;
-
-let guessInterval = null;
-let exiting = false;
-
-let didNonHostStartTest = false;
-let didStartTwiceTest = false;
-let didBadClueTest = false;
-let didWrongTeamTest = false;
-let didDuplicateTest = false;
-let didGuessAfterEndTest = false;
-let didMidRoundReconnectTest = false;
-
-let lastAttemptedTileId = null;
-
-let hostRoundNumber = null;
-let p2RoundNumber = null;
-
-let hostDidRoundInit = false;
-let p2DidRoundInit = false;
-
-// --- reconnect verification flags ---
-let p2SawRoundSyncAfterReconnect = false;
-let p2SawRoomSyncAfterReconnect = false;
-let reconnectingNow = false;
-
-function log(...args) {
-  console.log(...args);
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
-function tokenFromRes(res) {
-  return res?.playerToken || res?.playerKey || null;
-}
-
-const failsafeTimer = setTimeout(() => {
-  log("🧯 Failsafe exit: test took too long. Shutting down.");
-  shutdown(1);
-}, 45000);
-
-function stopGuessLoop() {
-  if (guessInterval) clearInterval(guessInterval);
-  guessInterval = null;
-}
-
-function shutdown(code = 0) {
-  if (exiting) return;
-  exiting = true;
-
-  try {
-    clearTimeout(failsafeTimer);
-  } catch {}
-  try {
-    stopGuessLoop();
-  } catch {}
-
-  try {
-    host.removeAllListeners();
-    host.disconnect();
-  } catch {}
-  try {
-    player2?.removeAllListeners();
-    player2?.disconnect();
-  } catch {}
-
-  setTimeout(() => process.exit(code), 100);
-}
-
-function freshestState() {
-  return hostState || player2State;
-}
-
-function pickUnGuessedTileId(state) {
-  const guessed = state?.round?.guessed || {};
-  const tiles = state?.round?.board || [];
-  const unguessed = tiles.filter((t) => !guessed[t.id]);
-  return unguessed[0]?.id || null;
-}
-
-function getSocketForTeam(team) {
-  if (team === "blue") return host;
-  if (team === "red") return player2;
-  return null;
-}
-
-function onNewRound(which, roundNum) {
-  roundRunning = true;
-  lastAttemptedTileId = null;
-
-  if (which === "HOST") {
-    hostRoundNumber = roundNum;
-    hostDidRoundInit = false;
-  } else {
-    p2RoundNumber = roundNum;
-    p2DidRoundInit = false;
+function assert(cond, msg) {
+  if (!cond) {
+    console.error("❌ ASSERT FAILED:", msg);
+    process.exit(1);
   }
 }
 
-function applyGuessDeltaToState(state, delta) {
-  if (!state) return state;
-  if (!state.round) state.round = {};
-  if (!state.round.guessed) state.round.guessed = {};
-
-  state.round.guessed[delta.tileId] = {
-    by: delta.by,
-    team: delta.team,
-    at: Date.now(),
-    points: delta.points,
-  };
-
-  // Keep scores in sync if present in room state (server emits scores in delta)
-  if (state.scores && delta.scores) {
-    state.scores = delta.scores;
-  }
-  return state;
+function hasPointsInBoard(payload) {
+  const board = payload?.round?.board || [];
+  if (!board.length) return false;
+  return Object.prototype.hasOwnProperty.call(board[0], "points");
 }
 
-function runGuessAfterEndTestAndExit(reasonTag) {
-  if (didGuessAfterEndTest) return;
-  didGuessAfterEndTest = true;
+async function main() {
+  let roomCode = null;
+  let hostToken = null;
+  let p2Token = null;
+  let p3Token = null;
 
-  const state = freshestState();
-  const tileId = state?.round?.board?.[0]?.id || "fake-tile-id";
+  let hostSocketId = null;
+  let p2SocketId = null;
+  let p3SocketId = null;
 
-  host.emit("guess:submit", { roomCode, tileId }, (r1) => {
-    log(`🧪 TEST guess after end (${reasonTag}) [host]:`, r1);
+  let currentClueGiverId = null;
+  let currentActiveTeam = null;
 
-    player2?.emit("guess:submit", { roomCode, tileId }, (r2) => {
-      log(`🧪 TEST guess after end (${reasonTag}) [player2]:`, r2);
-      stopGuessLoop();
-      shutdown(0);
-    });
-  });
-}
+  // -------------------------
+  // HOST
+  // -------------------------
+  const host = io(SERVER_URL, { transports: ["websocket"] });
 
-// small helper: emit with ack timeout
-function emitWithTimeout(socket, event, payload, ms = 900) {
-  return new Promise((resolve) => {
-    let done = false;
-    const t = setTimeout(() => {
-      if (done) return;
-      done = true;
-      resolve({ __timeout: true });
-    }, ms);
-
-    socket.emit(event, payload, (ack) => {
-      if (done) return;
-      done = true;
-      clearTimeout(t);
-      resolve(ack);
-    });
-  });
-}
-
-// --- MID-ROUND reconnect test ---
-async function midRoundReconnectTest() {
-  if (didMidRoundReconnectTest) return;
-  didMidRoundReconnectTest = true;
-
-  if (!player2 || !player2Token) return;
-
-  reconnectingNow = true;
-  p2SawRoundSyncAfterReconnect = false;
-  p2SawRoomSyncAfterReconnect = false;
-
-  log("🔌 MID-ROUND reconnect: disconnecting Player2, then room:rejoin...");
-
-  try {
-    player2.disconnect();
-  } catch {}
-
-  await new Promise((r) => setTimeout(r, 250));
-
-  const p2b = io(SERVER_URL, { transports: ["websocket"] });
-
-  await new Promise((resolve, reject) => {
-    p2b.on("connect", resolve);
-    p2b.on("connect_error", reject);
+  host.on("connect", () => {
+    hostSocketId = host.id;
+    console.log("✅ Host connected:", host.id);
   });
 
-  log("✅ Player2(reconnected socket) connected:", p2b.id);
-
-  // Rejoin (token-based)
-  const ack = await emitWithTimeout(
-    p2b,
-    "room:rejoin",
-    { roomCode, playerToken: player2Token, name: "PlayerTwo" },
-    900
-  );
-
-  log("🔁 Reconnect ack:", ack);
-  if (!ack?.ok) return shutdown(1);
-
-  // Swap in the new socket as player2
-  try {
-    player2?.removeAllListeners();
-  } catch {}
-  player2 = p2b;
-  wirePlayer2Listeners(); // flips p2SawRoomSyncAfterReconnect / p2SawRoundSyncAfterReconnect
-
-  // Wait until we see BOTH room:sync + round:sync post-reconnect
-  const start = Date.now();
-  while (Date.now() - start < 2500) {
-    if (p2SawRoomSyncAfterReconnect && p2SawRoundSyncAfterReconnect) break;
-    await new Promise((r) => setTimeout(r, 50));
-  }
-
-  if (!p2SawRoomSyncAfterReconnect || !p2SawRoundSyncAfterReconnect) {
-    log("❌ Reconnect validation failed:", {
-      p2SawRoomSyncAfterReconnect,
-      p2SawRoundSyncAfterReconnect,
-    });
-    return shutdown(1);
-  }
-
-  reconnectingNow = false;
-  log("✅ MID-ROUND reconnect validated: Player2 got room:sync + round:sync");
-}
-
-// ---- Host connect -> create room ----
-host.on("connect", () => {
-  log("✅ Host connected:", host.id);
-
-  host.emit(
-    "room:create",
-    { name: "HostPlayer", password: "secret123", settings: SETTINGS },
-    (res) => {
-      log("📦 room:create:", res);
-      if (!res?.ok) return shutdown(1);
-
-      roomCode = res.roomCode;
-      hostToken = tokenFromRes(res);
-
-      host.emit("room:team:set", { roomCode, team: "blue" }, (r) => {
-        log("🔵 Host set team:", r);
-        if (!r?.ok) return shutdown(1);
-        connectPlayer2();
-      });
-    }
-  );
-});
-
-// ---- Player2 connect -> join ----
-function wirePlayer2Listeners() {
-  // NEW: room:sync
-  player2.on("room:sync", (state) => {
-    player2State = state;
-    log("📡 Player2 room:sync status =", state.status);
-
-    if (reconnectingNow) {
-      p2SawRoomSyncAfterReconnect = true;
-    }
+  host.on("room:sync", (s) => {
+    console.log("📡 Host room:sync status =", s.status);
   });
 
-  // Back-compat
-  player2.on("room:state", (state) => {
-    player2State = state;
-    log("📡 Player2 room:state status =", state.status);
+  host.on("round:sync", (payload) => {
+    const hp = hasPointsInBoard(payload);
+    currentClueGiverId = payload?.round?.clueGiverId || null;
+    currentActiveTeam = payload?.round?.activeTeam || null;
+
+    console.log(
+      "🟢 round:sync (host) round =",
+      payload?.round?.number,
+      "activeTeam =",
+      currentActiveTeam,
+      "clueGiverId =",
+      currentClueGiverId,
+      "clueGiverToken =",
+      payload?.round?.clueGiverToken,
+      "hasPoints=",
+      hp
+    );
+
+    // Masking assertion: host SHOULD have points only if host is cluegiver
+    const isClueGiver = host.id && currentClueGiverId === host.id;
+    assert(
+      isClueGiver ? hp === true : hp === false,
+      `Host board masking wrong. isClueGiver=${isClueGiver} hasPoints=${hp}`
+    );
   });
 
-  // NEW: round:sync
-  player2.on("round:sync", (payload) => {
-    const rn = payload?.round?.number ?? null;
-    if (rn !== p2RoundNumber) onNewRound("P2", rn);
+  host.on("clue:sync", (p) => {
+    console.log("🧩 Host saw clue:sync", p);
+  });
 
-    activeTeam = payload?.round?.activeTeam;
-    clueGiverId = payload?.round?.clueGiverId;
-    clueGiverToken = payload?.round?.clueGiverToken;
+  host.on("guess:applied", (p) => {
+    console.log("✅ Host saw guess:applied", p);
+  });
 
-    // Keep local round state updated
-    if (!player2State) player2State = {};
-    player2State.round = payload.round;
+  host.on("round:ended", (p) => {
+    console.log("🏁 Round ended (host)", p);
+  });
 
-    const hasPoints = payload?.round?.board?.some((t) => "points" in t);
-    log(
+  host.on("game:ended", (p) => {
+    console.log("🏆 Game ended (host)", p);
+  });
+
+  // -------------------------
+  // PLAYER2 (red)
+  // -------------------------
+  const p2 = io(SERVER_URL, { transports: ["websocket"] });
+
+  p2.on("connect", () => {
+    p2SocketId = p2.id;
+    console.log("✅ Player2 connected:", p2.id);
+  });
+
+  p2.on("room:sync", (s) => {
+    console.log("📡 Player2 room:sync status =", s.status);
+  });
+
+  p2.on("round:sync", (payload) => {
+    const hp = hasPointsInBoard(payload);
+    console.log(
       "🟢 round:sync (player2) round =",
-      rn,
+      payload?.round?.number,
       "activeTeam =",
-      activeTeam,
+      payload?.round?.activeTeam,
       "clueGiverId =",
-      clueGiverId,
+      payload?.round?.clueGiverId,
       "clueGiverToken =",
-      clueGiverToken,
+      payload?.round?.clueGiverToken,
       "hasPoints=",
-      hasPoints
+      hp
     );
 
-    if (reconnectingNow) {
-      p2SawRoundSyncAfterReconnect = true;
-    }
-
-    if (!p2DidRoundInit) p2DidRoundInit = true;
+    // Non-cluegiver must NEVER have points
+    assert(hp === false, "Player2 should never receive points in masked board");
   });
 
-  // Back-compat
-  player2.on("round:state", (payload) => {
-    const rn = payload?.round?.number ?? null;
-    if (rn !== p2RoundNumber) onNewRound("P2", rn);
+  p2.on("clue:sync", (p) => {
+    console.log("🧩 Player2 saw clue:sync", p);
+  });
 
-    activeTeam = payload?.round?.activeTeam;
-    clueGiverId = payload?.round?.clueGiverId;
-    clueGiverToken = payload?.round?.clueGiverToken;
+  p2.on("guess:applied", (p) => {
+    console.log("✅ Player2 saw guess:applied", p);
+  });
 
-    if (!player2State) player2State = {};
-    player2State.round = payload.round;
+  p2.on("round:ended", (p) => {
+    console.log("🏁 Round ended (player2)", p);
+  });
 
-    const hasPoints = payload?.round?.board?.some((t) => "points" in t);
-    log(
-      "🟢 round:state (player2) round =",
-      rn,
+  // -------------------------
+  // PLAYER3 (blue) - used for cluegiver reassignment test
+  // -------------------------
+  const p3 = io(SERVER_URL, { transports: ["websocket"] });
+
+  p3.on("connect", () => {
+    p3SocketId = p3.id;
+    console.log("✅ Player3 connected:", p3.id);
+  });
+
+  p3.on("room:sync", (s) => {
+    console.log("📡 Player3 room:sync status =", s.status);
+  });
+
+  let p3BecameClueGiver = false;
+
+  p3.on("round:sync", (payload) => {
+    const hp = hasPointsInBoard(payload);
+    const isClueGiver = payload?.round?.clueGiverId === p3.id;
+
+    console.log(
+      "🟢 round:sync (player3) round =",
+      payload?.round?.number,
       "activeTeam =",
-      activeTeam,
+      payload?.round?.activeTeam,
       "clueGiverId =",
-      clueGiverId,
+      payload?.round?.clueGiverId,
       "clueGiverToken =",
-      clueGiverToken,
+      payload?.round?.clueGiverToken,
       "hasPoints=",
-      hasPoints
+      hp
     );
-  });
 
-  // NEW: clue:sync
-  player2.on("clue:sync", (c) => log("🧩 Player2 saw clue:sync", c));
-  // Back-compat
-  player2.on("clue:state", (c) => log("🧩 Player2 saw clue:state", c));
-
-  // NEW: guess delta
-  player2.on("guess:applied", (g) => {
-    log("✅ Player2 saw guess:applied", g);
-    player2State = applyGuessDeltaToState(player2State, g);
-  });
-  // Back-compat
-  player2.on("guess:result", (g) => log("✅ Player2 saw guess:result", g));
-
-  player2.on("round:ended", (e) => {
-    roundRunning = false;
-    stopGuessLoop();
-    log("🏁 Round ended (player2)", e || "");
-    runGuessAfterEndTestAndExit("round");
-  });
-
-  player2.on("game:ended", (e) => {
-    roundRunning = false;
-    stopGuessLoop();
-    log("🏆 Game ended (player2)", e || "");
-    runGuessAfterEndTestAndExit("game");
-  });
-
-  player2.on("connect_error", (err) => {
-    log("❌ Player2 connect error:", err.message);
-    shutdown(1);
-  });
-
-  player2.on("error", (err) => {
-    log("❌ Player2 socket error:", err?.message || err);
-    shutdown(1);
-  });
-}
-
-function connectPlayer2() {
-  player2 = io(SERVER_URL, { transports: ["websocket"] });
-
-  player2.on("connect", () => {
-    log("✅ Player2 connected:", player2.id);
-
-    player2.emit(
-      "room:join",
-      { roomCode, name: "PlayerTwo", password: "secret123" },
-      (joinRes) => {
-        log("👤 Player2 join:", joinRes);
-        if (!joinRes?.ok) return shutdown(1);
-
-        player2Token = tokenFromRes(joinRes);
-
-        wirePlayer2Listeners();
-
-        player2.emit("room:team:set", { roomCode, team: "red" }, (r) => {
-          log("🔴 Player2 set team:", r);
-          if (!r?.ok) return shutdown(1);
-
-          // TEST: non-host cannot start round
-          if (!didNonHostStartTest) {
-            didNonHostStartTest = true;
-            player2.emit("round:start", { roomCode }, (rr) => {
-              log("🧪 TEST non-host round:start:", rr);
-              setTimeout(startRound, 150);
-            });
-          } else {
-            setTimeout(startRound, 150);
-          }
-        });
-      }
+    // Player3 should have points ONLY if they are cluegiver
+    assert(
+      isClueGiver ? hp === true : hp === false,
+      `Player3 masking wrong. isClueGiver=${isClueGiver} hasPoints=${hp}`
     );
+
+    if (isClueGiver) p3BecameClueGiver = true;
   });
-}
 
-// ---- Start round (host only) ----
-function startRound() {
-  log("🧪 emitting round:start with roomCode =", roomCode);
-
-  host.emit("round:start", { roomCode }, (res) => {
-    log("▶️ round:start:", res);
-    if (!res?.ok) return shutdown(1);
-
-    // TEST: starting again immediately should fail
-    if (!didStartTwiceTest) {
-      didStartTwiceTest = true;
-      host.emit("round:start", { roomCode }, (r2) => {
-        log("🧪 TEST start round twice:", r2);
-      });
-    }
+  p3.on("clue:sync", (p) => {
+    console.log("🧩 Player3 saw clue:sync", p);
   });
-}
 
-// ---- Host listeners ----
+  p3.on("guess:applied", (p) => {
+    console.log("✅ Player3 saw guess:applied", p);
+  });
 
-// NEW: room:sync
-host.on("room:sync", (state) => {
-  hostState = state;
-  log("📡 Host room:sync status =", state.status);
-});
-// Back-compat
-host.on("room:state", (state) => {
-  hostState = state;
-  log("📡 Host room:state status =", state.status);
-});
+  p3.on("round:ended", (p) => {
+    console.log("🏁 Round ended (player3)", p);
+  });
 
-// NEW: round:sync
-host.on("round:sync", (payload) => {
-  const rn = payload?.round?.number ?? null;
-  if (rn !== hostRoundNumber) onNewRound("HOST", rn);
-
-  activeTeam = payload?.round?.activeTeam;
-  clueGiverId = payload?.round?.clueGiverId;
-  clueGiverToken = payload?.round?.clueGiverToken;
-
-  // Keep local round state updated
-  if (!hostState) hostState = {};
-  hostState.round = payload.round;
-
-  const hasPoints = payload?.round?.board?.some((t) => "points" in t);
-  log(
-    "🟢 round:sync (host) round =",
-    rn,
-    "activeTeam =",
-    activeTeam,
-    "clueGiverId =",
-    clueGiverId,
-    "clueGiverToken =",
-    clueGiverToken,
-    "hasPoints=",
-    hasPoints
-  );
-
-  if (!hostDidRoundInit) {
-    hostDidRoundInit = true;
-
-    // Bad clue test (once per run) BEFORE reconnect
-    if (!didBadClueTest && player2) {
-      didBadClueTest = true;
-      player2.emit("clue:set", { roomCode, text: "BADCLUE" }, (r) => {
-        log("🧪 TEST bad clue:set by player2:", r);
-      });
-    }
-
-    // Reconnect immediately while round is running, then continue.
-    setTimeout(async () => {
-      try {
-        await midRoundReconnectTest();
-
-        // Now set clue after reconnect
-        const clueSocket = clueGiverId === host.id ? host : player2;
-        clueSocket?.emit("clue:set", { roomCode, text: "horse" }, (r) => {
-          log("🧩 clue:set by cluegiver:", r);
-        });
-
-        // Start guessing only after reconnect is confirmed
-        startAutoGuessing();
-      } catch (e) {
-        log("❌ midRoundReconnectTest threw:", e?.message || e);
-        shutdown(1);
-      }
-    }, 300);
+  // -------------------------
+  // Wait for connect
+  // -------------------------
+  while (!host.connected || !p2.connected || !p3.connected) {
+    await sleep(50);
   }
 
-  if (!hostDidRoundInit) hostDidRoundInit = true;
-});
+  // -------------------------
+  // Create room
+  // -------------------------
+  const createResp = await new Promise((resolve) => {
+    host.emit(
+      "room:create",
+      { name: "Host", password: "pw", settings: { roundSeconds: 12, targetScore: 9999 } },
+      resolve
+    );
+  });
+  console.log("📦 room:create:", createResp);
+  assert(createResp.ok, "room:create failed");
+  roomCode = createResp.roomCode;
+  hostToken = createResp.playerToken;
 
-// Back-compat
-host.on("round:state", (payload) => {
-  const rn = payload?.round?.number ?? null;
-  if (rn !== hostRoundNumber) onNewRound("HOST", rn);
+  // Set teams
+  const hostTeam = await new Promise((resolve) => {
+    host.emit("room:team:set", { roomCode, team: "blue" }, resolve);
+  });
+  console.log("🔵 Host set team:", hostTeam);
+  assert(hostTeam.ok, "host team set failed");
 
-  activeTeam = payload?.round?.activeTeam;
-  clueGiverId = payload?.round?.clueGiverId;
-  clueGiverToken = payload?.round?.clueGiverToken;
+  const join2 = await new Promise((resolve) => {
+    p2.emit("room:join", { roomCode, name: "P2", password: "pw" }, resolve);
+  });
+  console.log("👤 Player2 join:", join2);
+  assert(join2.ok, "player2 join failed");
+  p2Token = join2.playerToken;
 
-  if (!hostState) hostState = {};
-  hostState.round = payload.round;
+  const p2Team = await new Promise((resolve) => {
+    p2.emit("room:team:set", { roomCode, team: "red" }, resolve);
+  });
+  console.log("🔴 Player2 set team:", p2Team);
+  assert(p2Team.ok, "player2 team set failed");
 
-  const hasPoints = payload?.round?.board?.some((t) => "points" in t);
-  log(
-    "🟢 round:state (host) round =",
-    rn,
-    "activeTeam =",
-    activeTeam,
-    "clueGiverId =",
-    clueGiverId,
-    "clueGiverToken =",
-    clueGiverToken,
-    "hasPoints=",
-    hasPoints
-  );
-});
+  const join3 = await new Promise((resolve) => {
+    p3.emit("room:join", { roomCode, name: "P3", password: "pw" }, resolve);
+  });
+  console.log("👤 Player3 join:", join3);
+  assert(join3.ok, "player3 join failed");
+  p3Token = join3.playerToken;
 
-// NEW: clue:sync
-host.on("clue:sync", (c) => log("🧩 Host saw clue:sync", c));
-// Back-compat
-host.on("clue:state", (c) => log("🧩 Host saw clue:state", c));
+  const p3Team = await new Promise((resolve) => {
+    p3.emit("room:team:set", { roomCode, team: "blue" }, resolve);
+  });
+  console.log("🔵 Player3 set team:", p3Team);
+  assert(p3Team.ok, "player3 team set failed");
 
-// NEW: guess delta
-host.on("guess:applied", (g) => {
-  log("✅ Host saw guess:applied", g);
-  hostState = applyGuessDeltaToState(hostState, g);
-});
-// Back-compat
-host.on("guess:result", (g) => log("✅ Host saw guess:result", g));
+  // -------------------------
+  // Non-host cannot start
+  // -------------------------
+  const nonHostStart = await new Promise((resolve) => {
+    p2.emit("round:start", { roomCode }, resolve);
+  });
+  console.log("🧪 TEST non-host round:start:", nonHostStart);
+  assert(nonHostStart.ok === false, "Non-host should not be able to start");
 
-host.on("round:ended", (e) => {
-  roundRunning = false;
-  stopGuessLoop();
-  log("🏁 Round ended (host)", e || "");
-  runGuessAfterEndTestAndExit("round");
-});
+  // -------------------------
+  // Start round (host)
+  // -------------------------
+  console.log("🧪 emitting round:start with roomCode =", roomCode);
+  const startResp = await new Promise((resolve) => {
+    host.emit("round:start", { roomCode }, resolve);
+  });
+  console.log("▶️ round:start:", startResp);
+  assert(startResp.ok, "round:start failed");
 
-host.on("game:ended", (e) => {
-  roundRunning = false;
-  stopGuessLoop();
-  log("🏆 Game ended (host)", e || "");
-  runGuessAfterEndTestAndExit("game");
-});
+  // Give sync a moment
+  await sleep(250);
 
-host.on("connect_error", (err) => {
-  log("❌ Host connect error:", err.message);
-  shutdown(1);
-});
+  // -------------------------
+  // NEW TEST: cluegiver disconnect mid-round BEFORE clue is set
+  // Expected: server reassigns cluegiver to connected blue (Player3)
+  // -------------------------
+  console.log("🧪 TEST cluegiver disconnect mid-round (before clue set)");
+  host.disconnect(); // hard drop
 
-host.on("error", (err) => {
-  log("❌ Host socket error:", err?.message || err);
-  shutdown(1);
-});
+  // Wait for reassignment
+  const t0 = Date.now();
+  while (!p3BecameClueGiver && Date.now() - t0 < 2000) {
+    await sleep(50);
+  }
+  assert(p3BecameClueGiver, "Player3 was not reassigned as cluegiver after host disconnect");
 
-// ---- Auto-guessing + abuse tests ----
-function startAutoGuessing() {
-  if (guessInterval) return;
+  // -------------------------
+  // Only cluegiver can set clue (now Player3)
+  // -------------------------
+  const badClueByP2 = await new Promise((resolve) => {
+    p2.emit("clue:set", { roomCode, text: "horse" }, resolve);
+  });
+  console.log("🧪 TEST bad clue:set by player2:", badClueByP2);
+  assert(badClueByP2.ok === false, "Player2 should not set clue");
 
-  guessInterval = setInterval(() => {
-    if (!roundRunning) return;
-    if (reconnectingNow) return; // don't spam while reconnecting
+  const goodClueByP3 = await new Promise((resolve) => {
+    p3.emit("clue:set", { roomCode, text: "horse" }, resolve);
+  });
+  console.log("🧩 clue:set by reassigned cluegiver (player3):", goodClueByP3);
+  assert(goodClueByP3.ok === true, "Player3 should set clue");
 
-    const state = freshestState();
-    if (!state?.round?.board?.length) return;
+  // -------------------------
+  // Wrong-team guess: player2 is red, activeTeam is blue
+  // -------------------------
+  const wrongTeamGuess = await new Promise((resolve) => {
+    p2.emit("guess:submit", { roomCode, tileId: "nope" }, resolve);
+  });
+  console.log("🧪 TEST wrong-team guess:", wrongTeamGuess);
+  assert(wrongTeamGuess.ok === false, "Wrong team guess should fail");
 
-    // wrong team test (once per run)
-    if (!didWrongTeamTest && activeTeam) {
-      didWrongTeamTest = true;
-      const wrongTeam = activeTeam === "blue" ? "red" : "blue";
-      const wrongSocket = getSocketForTeam(wrongTeam);
-      const tileId = pickUnGuessedTileId(state);
+  // -------------------------
+  // Guess loop: player3 (blue) guesses tiles until board ends
+  // We need real tile ids; pull from last round:sync on player3 by waiting briefly
+  // -------------------------
+  await sleep(200);
 
-      if (wrongSocket && tileId) {
-        wrongSocket.emit("guess:submit", { roomCode, tileId }, (r) => {
-          log("🧪 TEST wrong-team guess:", r);
-        });
-      }
-    }
+  // We'll ask server for round sync by rejoin (cheap) OR rely on stored startResp board (masked)
+  // startResp.round.board is FULL only for cluegiver at the time. Host was cluegiver then.
+  // So instead, we listen to latest payload stored locally by doing a tiny hack:
+  // We'll request a fresh round sync by doing room:rejoin (player3) to receive authoritative round:sync.
+  const rejoin3 = await new Promise((resolve) => {
+    p3.emit("room:rejoin", { roomCode, playerToken: p3Token, name: "P3" }, resolve);
+  });
+  assert(rejoin3.ok, "player3 rejoin failed");
 
-    const tileId = pickUnGuessedTileId(state);
-    if (!tileId) return;
+  // Capture tiles from one-time round:sync event
+  let tiles = null;
+  const tilePromise = new Promise((resolve) => {
+    const handler = (payload) => {
+      tiles = payload?.round?.board || [];
+      p3.off("round:sync", handler);
+      resolve();
+    };
+    p3.on("round:sync", handler);
+  });
+  await tilePromise;
 
-    if (tileId === lastAttemptedTileId) return;
-    lastAttemptedTileId = tileId;
+  assert(Array.isArray(tiles) && tiles.length === 24, "Did not receive 24 tiles on round sync");
 
-    const activeSocket = getSocketForTeam(activeTeam);
-    if (!activeSocket) return;
-
-    activeSocket.emit("guess:submit", { roomCode, tileId }, (r) => {
-      if (r?.ok === false) {
-        log("❌ active guess failed:", r);
-        lastAttemptedTileId = null;
-        return;
-      }
-
-      // duplicate guess test (once per run)
-      if (!didDuplicateTest) {
-        didDuplicateTest = true;
-        activeSocket.emit("guess:submit", { roomCode, tileId }, (dup) => {
-          log("🧪 TEST duplicate guess:", dup);
-        });
-      }
-
-      lastAttemptedTileId = null;
+  // Guess each tile once
+  for (const t of tiles) {
+    const r = await new Promise((resolve) => {
+      p3.emit("guess:submit", { roomCode, tileId: t.id }, resolve);
     });
-  }, 120);
+    if (!r.ok) {
+      // once the round ends, server will say "No active round"
+      if (r.error === "No active round") break;
+      console.log("guess fail:", r);
+      break;
+    }
+    await sleep(10);
+  }
+
+  // Post-round guess should fail
+  const afterEndGuess = await new Promise((resolve) => {
+    p3.emit("guess:submit", { roomCode, tileId: tiles[0].id }, resolve);
+  });
+  console.log("🧪 TEST guess after end (player3):", afterEndGuess);
+  assert(afterEndGuess.ok === false, "Guess after end should fail");
+
+  // Cleanup
+  p2.disconnect();
+  p3.disconnect();
+
+  console.log("✅ ALL NEW TESTS PASSED");
+  process.exit(0);
 }
+
+main().catch((e) => {
+  console.error("Fatal test error:", e);
+  process.exit(1);
+});

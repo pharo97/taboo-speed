@@ -8,13 +8,11 @@ function normalize(s) {
   return (s || "").trim().replace(/\s+/g, " ");
 }
 
-// Slightly less strict than before so "hard" isn't a unicorn.
 function classifyDifficulty(word) {
   const w = word.trim();
   const isMultiWord = /\s/.test(w);
   const len = w.replace(/\s+/g, "").length;
 
-  // tweak as you want
   if (isMultiWord || len >= 10) return "hard";
   if (len >= 6) return "medium";
   return "easy";
@@ -36,7 +34,6 @@ function loadWordBank() {
   }
 
   const raw = fs.readFileSync(WORDS_PATH, "utf8");
-
   const lines = raw.split(/\r?\n/).map(normalize).filter(Boolean);
 
   const seen = new Set();
@@ -60,4 +57,9 @@ function loadWordBank() {
   return CACHE;
 }
 
-module.exports = { loadWordBank };
+function reloadWordBank() {
+  CACHE = null;
+  return loadWordBank();
+}
+
+module.exports = { loadWordBank, reloadWordBank };
