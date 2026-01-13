@@ -15,6 +15,12 @@ function generateRoomCode(length = 6) {
   return code;
 }
 
+function clamp(n, min, max) {
+  const x = Number(n);
+  if (Number.isNaN(x)) return min;
+  return Math.min(Math.max(x, min), max);
+}
+
 function pickRandom(arr, n, usedSet) {
   const pool = arr.filter((x) => !usedSet.has(x.word.toLowerCase()));
 
@@ -82,29 +88,33 @@ function generateBoard(total = 24) {
 }
 
 // --------------------
-// ROOM MANAGEMENT
+// ROOM MANAGEMENT (Among Us style: CODE ONLY)
 // --------------------
-function createRoom({ password, settings }) {
+function createRoom({ settings } = {}) {
   let code = generateRoomCode();
   while (rooms[code]) code = generateRoomCode();
 
+  const targetScore = clamp(settings?.targetScore ?? 300, 50, 10000);
+  const roundSeconds = clamp(settings?.roundSeconds ?? 30, 10, 300);
+
+  const now = Date.now();
+
   rooms[code] = {
     code,
-    password,
     settings: {
-      targetScore: settings?.targetScore ?? 300,
-      roundSeconds: settings?.roundSeconds ?? 30,
+      targetScore,
+      roundSeconds,
     },
+
     status: "lobby",
-    createdAt: Date.now(),
 
-    hostPlayerId: null,
+    createdAt: now,
+    lastActivity: now,
 
-    // socketId -> player
-    players: {},
-
-    // playerKey -> socketId
-    playersByKey: {},
+    // identity maps used by index.js
+    playersByToken: {}, // token -> player (server truth)
+    tokenBySocketId: {}, // socketId -> token
+    hostPlayerToken: null, // token
 
     scores: { blue: 0, red: 0 },
     turn: { nextTeam: "blue" },
@@ -113,6 +123,7 @@ function createRoom({ password, settings }) {
       number: 0,
       activeTeam: null,
       clueGiverId: null,
+      clueGiverToken: null,
       startedAt: null,
       endsAt: null,
       board: [],
@@ -131,138 +142,61 @@ function createRoom({ password, settings }) {
 }
 
 function getRoom(code) {
-  return rooms[code];
-}
-
-function touchPlayer(player) {
-  player.lastSeenAt = Date.now();
-}
-
-// Old behavior (socket-id only). Keep exported so current code doesn’t explode.
-function addPlayer(room, player) {
-  room.players[player.id] = player;
-
-  if (!room.hostPlayerId) {
-    room.hostPlayerId = player.id;
-    room.players[player.id].isHost = true;
-  }
-
-  touchPlayer(room.players[player.id]);
-  return room.players[player.id];
-}
-
-// New behavior: reconnect via playerKey
-function addOrReconnectPlayer(
-  room,
-  { socketId, name, playerKey, isHost = false }
-) {
-  if (!playerKey) throw new Error("playerKey required");
-
-  const existingSocketId = room.playersByKey[playerKey];
-  const existingPlayer = existingSocketId
-    ? room.players[existingSocketId]
-    : null;
-
-  // Reconnect: same identity, new socket id
-  if (existingPlayer) {
-    // remove old socket mapping
-    delete room.players[existingSocketId];
-
-    // carry forward team/host status by default
-    const merged = {
-      ...existingPlayer,
-      id: socketId,
-      name: (name || existingPlayer.name || "Player").trim(),
-      connected: true,
-      playerKey,
-    };
-
-    room.players[socketId] = merged;
-    room.playersByKey[playerKey] = socketId;
-
-    // if host was on old socket id, move hostPlayerId
-    if (room.hostPlayerId === existingSocketId) {
-      room.hostPlayerId = socketId;
-      room.players[socketId].isHost = true;
-    }
-
-    touchPlayer(room.players[socketId]);
-    return { player: room.players[socketId], reconnected: true };
-  }
-
-  // Fresh join
-  const player = {
-    id: socketId,
-    name: (name || "Player").trim(),
-    team: null,
-    isHost: !!isHost,
-    connected: true,
-    playerKey,
-    joinedAt: Date.now(),
-    lastSeenAt: Date.now(),
-  };
-
-  room.players[socketId] = player;
-  room.playersByKey[playerKey] = socketId;
-
-  if (!room.hostPlayerId) {
-    room.hostPlayerId = socketId;
-    room.players[socketId].isHost = true;
-  }
-
-  touchPlayer(room.players[socketId]);
-  return { player: room.players[socketId], reconnected: false };
-}
-
-function markDisconnected(room, socketId) {
-  const p = room.players?.[socketId];
-  if (!p) return;
-
-  p.connected = false;
-  touchPlayer(p);
-}
-
-function removePlayerByKey(room, playerKey) {
-  const socketId = room.playersByKey?.[playerKey];
-  if (!socketId) return false;
-
-  const wasHost = room.hostPlayerId === socketId;
-
-  delete room.playersByKey[playerKey];
-  delete room.players[socketId];
-
-  // If host got kicked, pick a new host if possible
-  if (wasHost) {
-    const remaining = Object.values(room.players || {});
-    const next = remaining[0];
-    room.hostPlayerId = next ? next.id : null;
-    if (next) next.isHost = true;
-  }
-
-  return true;
+  if (!code) return null;
+  const key = String(code).trim().toUpperCase();
+  return rooms[key] || null;
 }
 
 // --------------------
 // SANITIZE (SEND TO CLIENT)
+// IMPORTANT:
+// - do NOT leak player tokens or socket ids
+// - BUT App.jsx expects playersByToken[playerToken] to exist client-side
+//   so we keep a token-keyed map with safe player objects (no token/socketId)
 // --------------------
 function sanitizeRoom(room) {
-  const { password, runtime, ...safe } = room;
+  if (!room) return null;
 
-  // Hide playerKey mapping from clients (still show connected status + name/team)
-  if (safe.playersByKey) delete safe.playersByKey;
+  const {
+    runtime, // hide (internal timers)
+    tokenBySocketId, // hide (internal)
+    ...safe
+  } = room;
 
-  return safe;
+  // Keep token-keyed map but strip sensitive fields
+  const safePlayersByToken = {};
+  for (const [token, p] of Object.entries(room.playersByToken || {})) {
+    safePlayersByToken[token] = {
+      name: p.name,
+      team: p.team,
+      isHost: !!p.isHost,
+      connected: !!p.connected,
+      lastSeenAt: p.lastSeenAt,
+    };
+  }
+
+  return {
+    ...safe,
+    tokenBySocketId: undefined,
+    runtime: undefined,
+
+    // keep hostPlayerToken hidden
+    hostPlayerToken: undefined,
+
+    // provide safe token-keyed map for UI (needed to identify "me")
+    playersByToken: safePlayersByToken,
+
+    // optional summary helpers
+    playerCount: Object.keys(safePlayersByToken).length,
+    connectedCount: Object.values(safePlayersByToken).filter((p) => p.connected)
+      .length,
+  };
 }
 
 module.exports = {
   rooms,
   createRoom,
   getRoom,
-  addPlayer, // kept for backward compatibility
-  addOrReconnectPlayer,
-  markDisconnected,
-  removePlayerByKey,
-  touchPlayer,
   sanitizeRoom,
   generateBoard,
 };
