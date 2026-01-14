@@ -1,4 +1,4 @@
-// src/components/Lobby.jsx
+// web/src/components/Lobby.jsx
 import { useState } from "react";
 
 export default function Lobby({
@@ -6,33 +6,66 @@ export default function Lobby({
   isHost,
   roomCode,
   roomStatus,
-  roomPassword, // may be undefined for non-host or if sanitizeRoom hides it
   onCreateRoom,
   onLeaveRoom,
-  joinForm, // pass <JoinRoom .../> here to render inside Lobby
+  joinForm,
 }) {
   const [showJoin, setShowJoin] = useState(false);
+  const [hostName, setHostName] = useState("");
 
-  // HOME (not in a room)
+  function handleCreate(e) {
+    e?.preventDefault?.();
+
+    const nm = String(hostName || "")
+      .trim()
+      .slice(0, 40);
+    if (!nm) return;
+
+    onCreateRoom?.(nm);
+    // optional: keep it or clear it
+    // setHostName("");
+  }
+
+  // HOME
   if (!inRoom) {
     return (
       <div style={card}>
         <h3 style={title}>Lobby</h3>
 
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <button style={btnPrimary} onClick={onCreateRoom}>
-            Create Game
-          </button>
+        <form onSubmit={handleCreate} style={{ display: "grid", gap: 10 }}>
+          <input
+            placeholder="Your name (host)"
+            value={hostName}
+            onChange={(e) => setHostName(e.target.value)}
+            style={input}
+            maxLength={40}
+            autoComplete="off"
+          />
 
-          <button
-            style={btn}
-            onClick={() => setShowJoin((v) => !v)}
-            aria-expanded={showJoin}
-            aria-controls="join-panel"
-          >
-            {showJoin ? "Close Join" : "Join Game"}
-          </button>
-        </div>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button
+              style={btnPrimary}
+              type="submit"
+              disabled={!hostName.trim()}
+            >
+              Create Game
+            </button>
+
+            <button
+              style={btn}
+              type="button"
+              onClick={() => setShowJoin((v) => !v)}
+              aria-expanded={showJoin}
+              aria-controls="join-panel"
+            >
+              {showJoin ? "Close Join" : "Join Game"}
+            </button>
+          </div>
+
+          <div style={{ fontSize: 12, opacity: 0.75 }}>
+            Pick a name. It’s not a personality test.
+          </div>
+        </form>
 
         {showJoin && (
           <div id="join-panel" style={{ marginTop: 12 }}>
@@ -61,15 +94,10 @@ export default function Lobby({
         <div>
           <strong>status:</strong> {roomStatus || "-"}
         </div>
-
-        {isHost && (
-          <div>
-            <strong>password:</strong>{" "}
-            <span style={mono}>
-              {roomPassword || "(hidden / not provided)"}
-            </span>
-          </div>
-        )}
+        <div style={{ fontSize: 12, opacity: 0.75 }}>
+          Share the <span style={mono}>{roomCode}</span> with friends.
+          {isHost ? " You’re host, congrats." : null}
+        </div>
       </div>
 
       <div
@@ -78,24 +106,12 @@ export default function Lobby({
         <button
           style={btnDanger}
           onClick={() => {
-            // optional: reset the join toggle so when user returns home it starts closed
             setShowJoin(false);
             onLeaveRoom?.();
           }}
         >
           Leave Game
         </button>
-      </div>
-
-      <div style={{ marginTop: 10, fontSize: 12, opacity: 0.75 }}>
-        Tip: share <span style={mono}>{roomCode}</span>
-        {isHost && roomPassword ? (
-          <>
-            {" "}
-            + <span style={mono}>{roomPassword}</span>
-          </>
-        ) : null}{" "}
-        with friends.
       </div>
     </div>
   );
@@ -109,6 +125,13 @@ const card = {
 };
 
 const title = { marginTop: 0, marginBottom: 10 };
+
+const input = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid #bbb",
+  outline: "none",
+};
 
 const btn = {
   padding: "10px 12px",

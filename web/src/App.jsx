@@ -1,5 +1,5 @@
 // src/App.jsx
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { createSocket, SERVER_URL as BACKEND_URL } from "./socket";
 
 import Lobby from "./components/Lobby";
@@ -11,7 +11,6 @@ import HostControls from "./components/HostControls";
 import Game from "./game/Game";
 
 export default function App() {
-  // Keep socket in state so we can fully reset it on "Leave Game"
   const [socket, setSocket] = useState(() => createSocket());
 
   const [connected, setConnected] = useState(false);
@@ -26,22 +25,22 @@ export default function App() {
 
   const [room, setRoom] = useState(null);
   const [round, setRound] = useState(null);
-  const [role, setRole] = useState(null); // "cluegiver" | "guesser"
+  const [role, setRole] = useState(null);
 
   const [remainingMs, setRemainingMs] = useState(null);
   const [endedInfo, setEndedInfo] = useState(null);
 
   const [log, setLog] = useState([]);
 
-  // avoids "❌ disconnected" spam when we intentionally hard-leave
   const leavingRef = useRef(false);
+  const leaveRoomRef = useRef(null);
 
-  function pushLog(line) {
+  const pushLog = useCallback((line) => {
     const t = new Date().toLocaleTimeString();
     setLog((prev) => [`${t}  ${line}`, ...prev].slice(0, 200));
-  }
+  }, []);
 
-  function resetLocalIdentity() {
+  const resetLocalIdentity = useCallback(() => {
     localStorage.removeItem("roomCode");
     localStorage.removeItem("playerToken");
 
@@ -53,40 +52,42 @@ export default function App() {
     setRole(null);
     setRemainingMs(null);
     setEndedInfo(null);
-  }
+  }, []);
 
-  // Hard-leave: tell server (optional), disconnect socket, wipe identity, create fresh socket
-  function leaveRoom() {
+  const leaveRoom = useCallback(() => {
     pushLog("🚪 leaving room...");
     leavingRef.current = true;
 
-    // optional but smart: tell backend we’re leaving
-    try {
+    const safe = (fn) => {
+      try {
+        fn();
+      } catch {
+        // ignore
+      }
+    };
+
+    safe(() => {
       const rc = localStorage.getItem("roomCode") || roomCode;
       if (rc) socket.emit("room:leave", { roomCode: rc }, () => {});
-    } catch {
-      // ignore
-    }
+    });
 
-    try {
-      socket.disconnect();
-    } catch {
-      // ignore
-    }
+    safe(() => socket.disconnect());
 
     resetLocalIdentity();
 
-    // fresh socket instance so we aren't still joined to old rooms
     const fresh = createSocket();
     setSocket(fresh);
 
     pushLog("✅ left room (fresh socket)");
 
-    // allow normal disconnect logs again after this tick
     setTimeout(() => {
       leavingRef.current = false;
     }, 0);
-  }
+  }, [pushLog, resetLocalIdentity, roomCode, socket]);
+
+  useEffect(() => {
+    leaveRoomRef.current = leaveRoom;
+  }, [leaveRoom]);
 
   // --- socket wiring
   useEffect(() => {
@@ -97,14 +98,12 @@ export default function App() {
       setSocketId(socket.id);
       pushLog(`✅ connected: ${socket.id}`);
 
-      // auto rejoin if we have identity
       const rc = localStorage.getItem("roomCode") || "";
       const pt = localStorage.getItem("playerToken") || "";
 
       if (rc && pt) {
-        // keep state in sync with storage (important)
-        if (rc !== roomCode) setRoomCode(rc);
-        if (pt !== playerToken) setPlayerToken(pt);
+        setRoomCode((prev) => (prev !== rc ? rc : prev));
+        setPlayerToken((prev) => (prev !== pt ? pt : prev));
 
         socket.emit(
           "room:rejoin",
@@ -120,7 +119,6 @@ export default function App() {
     function onDisconnect(reason) {
       setConnected(false);
       setSocketId("");
-
       if (!leavingRef.current) {
         pushLog(`❌ disconnected (${reason || "no reason"})`);
       }
@@ -132,10 +130,21 @@ export default function App() {
 
     function onRoomSync(payload) {
       setRoom(payload);
+
+      const offer = payload?.round?.offer || null;
+      const offerStatus = offer?.status || "none";
+      const offerTeam = offer?.team || "-";
+      const offered = offer?.offeredToken
+        ? offer.offeredToken.slice(0, 6)
+        : "-";
+      const accepted = offer?.acceptedToken
+        ? offer.acceptedToken.slice(0, 6)
+        : "-";
+
       pushLog(
         `📡 room:sync status=${payload?.status} players=${
           Object.keys(payload?.playersByToken || {}).length
-        }`
+        } offer=${offerStatus} team=${offerTeam} offered=${offered} accepted=${accepted}`
       );
     }
 
@@ -181,6 +190,19 @@ export default function App() {
       pushLog(`✅ guess:applied tile=${payload?.tileId} +${payload?.points}`);
     }
 
+    function onKicked(payload) {
+      pushLog(`🥾 kicked: ${payload?.reason || "no reason provided"}`);
+      leaveRoomRef.current?.();
+    }
+
+    function onOffer(payload) {
+      pushLog(
+        `📨 cluegiver:offer team=${
+          payload?.team
+        } token=${payload?.offeredToken?.slice?.(0, 6)}...`
+      );
+    }
+
     socket.on("connect", onConnect);
     socket.on("disconnect", onDisconnect);
     socket.on("connect_error", onConnectError);
@@ -193,6 +215,9 @@ export default function App() {
     socket.on("game:ended", onGameEnded);
     socket.on("guess:correct", onGuessCorrect);
     socket.on("guess:applied", onGuessApplied);
+
+    socket.on("room:kicked", onKicked);
+    socket.on("cluegiver:offer", onOffer);
 
     return () => {
       socket.off("connect", onConnect);
@@ -208,22 +233,22 @@ export default function App() {
       socket.off("guess:correct", onGuessCorrect);
       socket.off("guess:applied", onGuessApplied);
 
-      // IMPORTANT: do NOT disconnect here.
-      // We only disconnect when we intentionally leaveRoom() or replace socket instance.
+      socket.off("room:kicked", onKicked);
+      socket.off("cluegiver:offer", onOffer);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket]);
+  }, [socket, pushLog, resetLocalIdentity]);
 
   // --- actions
-  function createRoom() {
+  function createRoom(hostName) {
     setEndedInfo(null);
+
+    const cleanName = String(hostName || "Host")
+      .trim()
+      .slice(0, 40);
 
     socket.emit(
       "room:create",
-      {
-        name: "Host",
-        settings: { roundSeconds: 30, targetScore: 300 },
-      },
+      { name: cleanName, settings: { roundSeconds: 30, targetScore: 300 } },
       (resp) => {
         pushLog(`📦 room:create ok=${resp?.ok} code=${resp?.roomCode}`);
         if (!resp?.ok) return;
@@ -254,14 +279,22 @@ export default function App() {
     if (!roomCode) return;
     socket.emit("room:team:set", { roomCode, team }, (resp) => {
       pushLog(`🎯 team:set ${team} ok=${resp?.ok}`);
+      if (!resp?.ok) pushLog(`❌ team error: ${resp?.error || "unknown"}`);
     });
   }
 
   function startRound() {
     if (!roomCode) return;
     setEndedInfo(null);
+
     socket.emit("round:start", { roomCode }, (resp) => {
+      if (resp?.ok && resp?.pendingOffer) {
+        pushLog(`📨 offer pending (waiting for accept)`);
+        return;
+      }
+
       pushLog(`▶️ round:start ok=${resp?.ok}`);
+      if (!resp?.ok) pushLog(`❌ start error: ${resp?.error || "unknown"}`);
     });
   }
 
@@ -269,6 +302,7 @@ export default function App() {
     if (!roomCode) return;
     socket.emit("clue:set", { roomCode, text }, (resp) => {
       pushLog(`🧩 clue:set ok=${resp?.ok}`);
+      if (!resp?.ok) pushLog(`❌ clue error: ${resp?.error || "unknown"}`);
     });
   }
 
@@ -281,23 +315,21 @@ export default function App() {
     });
   }
 
-  function kickPlayer(playerTokenToKick) {
+  function kickPlayer(tokenToKick) {
     if (!roomCode) return;
-    socket.emit(
-      "room:kick",
-      { roomCode, playerToken: playerTokenToKick },
-      (resp) => {
-        pushLog(`🦵 kick ok=${resp?.ok}`);
-        if (!resp?.ok) pushLog(`❌ kick error: ${resp?.error || "unknown"}`);
-      }
-    );
+
+    socket.emit("room:kick", { roomCode, playerToken: tokenToKick }, (resp) => {
+      pushLog(`🦵 kick ok=${resp?.ok}`);
+      if (!resp?.ok) pushLog(`❌ kick error: ${resp?.error || "unknown"}`);
+    });
   }
 
-  function transferHost(playerTokenToPromote) {
+  function transferHost(tokenToPromote) {
     if (!roomCode) return;
+
     socket.emit(
       "room:host:transfer",
-      { roomCode, playerToken: playerTokenToPromote },
+      { roomCode, playerToken: tokenToPromote },
       (resp) => {
         pushLog(`👑 host transfer ok=${resp?.ok}`);
         if (!resp?.ok)
@@ -308,19 +340,97 @@ export default function App() {
 
   function updateSettings(settings) {
     if (!roomCode) return;
-
     socket.emit("room:settings:set", { roomCode, settings }, (resp) => {
       pushLog(`⚙️ settings:set ok=${resp?.ok}`);
-      if (!resp?.ok) {
-        pushLog(`❌ settings error: ${resp?.error || "unknown"}`);
-      }
+      if (!resp?.ok) pushLog(`❌ settings error: ${resp?.error || "unknown"}`);
+    });
+  }
+
+  function acceptOffer() {
+    if (!roomCode) return;
+    socket.emit("cluegiver:accept", { roomCode }, (resp) => {
+      pushLog(`✅ offer accept ok=${resp?.ok}`);
+      if (!resp?.ok) pushLog(`❌ accept error: ${resp?.error || "unknown"}`);
+    });
+  }
+
+  function skipOffer() {
+    if (!roomCode) return;
+    socket.emit("cluegiver:decline", { roomCode }, (resp) => {
+      pushLog(`⏭ cluegiver:decline ok=${resp?.ok}`);
+      if (!resp?.ok) pushLog(`❌ decline error: ${resp?.error || "unknown"}`);
+    });
+  }
+
+  // ---- THE FIX: start accepted round with aggressive logging + event-name fallback
+  function startAcceptedRound() {
+    if (!roomCode) return;
+
+    // if you click and don't see this, your click isn't reaching React at all
+    pushLog(`🧷 startAcceptedRound() CLICKED roomCode=${roomCode}`);
+    pushLog(`🧪 socket.id=${socket?.id} connected=${socket?.connected}`);
+
+    const candidates = [
+      "round:startAccepted", // one naming style
+      "round:start:accepted", // another naming style
+      "round:start:acceptedRound", // just in case (people name things badly)
+      "round:start:accepted", // yes, duplicate-ish, still fine for testing
+    ];
+
+    let acked = false;
+
+    // try each name until one acks
+    candidates.forEach((eventName, idx) => {
+      setTimeout(() => {
+        if (acked) return;
+
+        pushLog(`📤 emitting "${eventName}"...`);
+
+        let callbackCalled = false;
+
+        socket.emit(eventName, { roomCode }, (resp) => {
+          callbackCalled = true;
+          acked = true;
+          pushLog(`🟣 ACK from "${eventName}" ok=${resp?.ok}`);
+          if (!resp?.ok) {
+            pushLog(`❌ accepted-start error: ${resp?.error || "unknown"}`);
+          }
+        });
+
+        // if backend doesn't have that event, callback never fires
+        setTimeout(() => {
+          if (acked) return;
+          if (!callbackCalled) {
+            pushLog(`🕳 no ACK for "${eventName}" (likely wrong event name)`);
+          }
+        }, 700);
+      }, idx * 200); // stagger the attempts
     });
   }
 
   const players = Object.values(room?.playersByToken || {});
   const me = playerToken ? room?.playersByToken?.[playerToken] : null;
+  const myTeam = me?.team || null;
+
   const isHost = !!me?.isHost;
   const inRoom = !!roomCode && !!playerToken;
+
+  const currentOffer = room?.round?.offer || null;
+
+  const iAmOffered =
+    !!currentOffer &&
+    currentOffer.status === "pending" &&
+    currentOffer.offeredToken === playerToken;
+
+  const iAcceptedOffer =
+    !!currentOffer &&
+    currentOffer.status === "accepted" &&
+    currentOffer.acceptedToken === playerToken;
+
+  const acceptedName =
+    currentOffer?.status === "accepted" && currentOffer?.acceptedToken
+      ? room?.playersByToken?.[currentOffer.acceptedToken]?.name || "Someone"
+      : "Someone";
 
   return (
     <div style={{ padding: 16, fontFamily: "system-ui, Arial" }}>
@@ -331,6 +441,73 @@ export default function App() {
         Status: {connected ? "CONNECTED" : "DISCONNECTED"} <br />
         Socket ID: {socketId || "-"}
       </div>
+
+      {/* Offer banner (pending + accepted) */}
+      {inRoom && room?.status === "lobby" && currentOffer && (
+        <div
+          style={{
+            border: "2px solid #333",
+            padding: 12,
+            borderRadius: 10,
+            marginBottom: 12,
+            background: "#fafafa",
+          }}
+        >
+          {currentOffer.status === "pending" ? (
+            iAmOffered ? (
+              <>
+                <div style={{ fontWeight: 700, marginBottom: 6 }}>
+                  You’ve been selected as Cluegiver ({currentOffer.team})
+                </div>
+                <div style={{ opacity: 0.8, marginBottom: 10 }}>
+                  Accept to take the role. Skip to pass to the next player.
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={acceptOffer}>Accept</button>
+                  <button onClick={skipOffer}>Skip</button>
+                </div>
+              </>
+            ) : (
+              <div style={{ fontWeight: 600 }}>
+                Waiting for offered cluegiver to accept or skip…
+              </div>
+            )
+          ) : currentOffer.status === "accepted" ? (
+            <>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>
+                Accepted cluegiver: {acceptedName} ({currentOffer.team})
+              </div>
+
+              {iAcceptedOffer ? (
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    type="button"
+                    onPointerDown={() =>
+                      pushLog("🧷 banner StartRound pointerDown")
+                    }
+                    onClickCapture={() =>
+                      pushLog("🎯 banner StartRound clickCapture")
+                    }
+                    onClick={() => {
+                      pushLog("✅ banner StartRound onClick");
+                      startAcceptedRound();
+                    }}
+                  >
+                    Start Round
+                  </button>
+                  <button onClick={skipOffer}>Pass / Decline</button>
+                </div>
+              ) : (
+                <div style={{ opacity: 0.85 }}>
+                  Waiting for accepted cluegiver to start…
+                </div>
+              )}
+            </>
+          ) : (
+            <div style={{ opacity: 0.8 }}>Offer in progress…</div>
+          )}
+        </div>
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         <div>
@@ -364,6 +541,8 @@ export default function App() {
 
           {inRoom && isHost && (
             <HostControls
+              room={room}
+              offer={room?.round?.offer || null}
               onStartRound={startRound}
               onUpdateSettings={updateSettings}
               currentSettings={room?.settings}
@@ -379,6 +558,12 @@ export default function App() {
             endedInfo={endedInfo}
             onSetClue={setClue}
             onGuess={submitGuess}
+            myTeam={myTeam}
+            myToken={playerToken}
+            offer={room?.round?.offer || null}
+            onAcceptOffer={acceptOffer}
+            onSkipOffer={skipOffer}
+            onStartAcceptedRound={startAcceptedRound}
           />
         </div>
 
