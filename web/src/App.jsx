@@ -326,7 +326,14 @@ export default function App() {
       socket.off("room:kicked", onKicked);
       socket.off("cluegiver:offer", onOffer);
     };
-  }, [socket, pushLog, resetLocalIdentity, addToast, playerToken, previousPlayerStates]);
+  }, [
+    socket,
+    pushLog,
+    resetLocalIdentity,
+    addToast,
+    playerToken,
+    previousPlayerStates,
+  ]);
 
   // --- actions
   function createRoom(hostName) {
@@ -438,7 +445,9 @@ export default function App() {
 
   function endGame() {
     if (!roomCode) return;
-    const confirmed = window.confirm("Are you sure you want to end the game? Winner will be determined by current score.");
+    const confirmed = window.confirm(
+      "Are you sure you want to end the game? Winner will be determined by current score."
+    );
     if (!confirmed) return;
 
     socket.emit("game:end", { roomCode }, (resp) => {
@@ -518,7 +527,14 @@ export default function App() {
       : "Someone";
 
   return (
-    <div style={{ padding: "8px 12px", fontFamily: "system-ui, Arial", background: "#0a0a0a", minHeight: "100vh" }}>
+    <div
+      style={{
+        padding: "8px 12px",
+        fontFamily: "system-ui, Arial",
+        background: "#0a0a0a",
+        minHeight: "100vh",
+      }}
+    >
       <div
         style={{
           display: "flex",
@@ -527,7 +543,17 @@ export default function App() {
           marginBottom: 12,
         }}
       >
-        <h2 style={{ marginTop: 0, marginBottom: 0, color: "#fff", fontSize: 28, fontWeight: 800 }}>Taboo Speed</h2>
+        <h2
+          style={{
+            marginTop: 0,
+            marginBottom: 0,
+            color: "#fff",
+            fontSize: 28,
+            fontWeight: 800,
+          }}
+        >
+          Taboo Speed
+        </h2>
         {inRoom && (
           <span
             style={{
@@ -546,7 +572,9 @@ export default function App() {
         )}
       </div>
 
-      <div style={{ opacity: 0.5, marginBottom: 12, fontSize: 12, color: "#aaa" }}>
+      <div
+        style={{ opacity: 0.5, marginBottom: 12, fontSize: 12, color: "#aaa" }}
+      >
         Backend: {BACKEND_URL} <br />
         Status: {connected ? "CONNECTED" : "DISCONNECTED"} <br />
         Socket ID: {socketId || "-"}
