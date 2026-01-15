@@ -5,7 +5,7 @@ const { Server } = require("socket.io");
 const cors = require("cors");
 const crypto = require("crypto");
 
-const { createRoom, getRoom, generateBoard, rooms } = require("./rooms");
+const { createRoom, getRoom, generateBoard, rooms, ROOM_STATUS } = require("./rooms");
 
 const PORT = process.env.PORT || 4000;
 
@@ -45,7 +45,8 @@ function cleanupInactiveRooms() {
   }
 }
 
-setInterval(cleanupInactiveRooms, 5 * 60 * 1000);
+// Check every 30 seconds instead of 5 minutes
+setInterval(cleanupInactiveRooms, 30 * 1000);
 
 // --------------------
 // helpers / guards
@@ -146,7 +147,7 @@ function bindSocket(room, socketId, token) {
   }
 
   ensureRound(room);
-  if (room.status === "playing" && room.runtime?.roundRunning) {
+  if (room.status === ROOM_STATUS.RUNNING && room.runtime?.roundRunning) {
     if (room.round.clueGiverToken && room.round.clueGiverToken === token) {
       room.round.clueGiverId = socketId;
     }
@@ -196,7 +197,38 @@ function clearOfferTimer(room) {
 }
 
 function isRoundRunning(room) {
-  return room?.status === "playing" && room?.runtime?.roundRunning === true;
+  return room?.status === ROOM_STATUS.RUNNING && room?.runtime?.roundRunning === true;
+}
+
+// --------------------
+// STATE VALIDATION
+// --------------------
+function validateRoomState(room, allowedStatuses) {
+  if (!Array.isArray(allowedStatuses)) {
+    allowedStatuses = [allowedStatuses];
+  }
+  return allowedStatuses.includes(room.status);
+}
+
+function resetRoundState(room) {
+  ensureRound(room);
+  const prevNumber = room.round.number || 0;
+
+  room.round = {
+    number: prevNumber,
+    activeTeam: null,
+    clueGiverId: null,
+    clueGiverToken: null,
+    startedAt: null,
+    endsAt: null,
+    board: [],
+    guessed: {},
+    clue: null,
+    offer: null,
+  };
+
+  clearRoundTimers(room);
+  clearOfferTimer(room);
 }
 
 function allTilesGuessed(room) {
@@ -283,6 +315,13 @@ function getTeamOrder(room, team) {
     .sort((a, b) => a.joinedAt - b.joinedAt);
 }
 
+function hasConnectedPlayers(room, team) {
+  ensureIdentity(room);
+  return Object.values(room.playersByToken || {}).some(
+    (p) => p.team === team && p.connected && p.socketId
+  );
+}
+
 function pickNextCluegiverToken(room, team) {
   ensureRotation(room);
   const order = getTeamOrder(room, team);
@@ -306,14 +345,50 @@ function pickNextCluegiverToken(room, team) {
 function sendCluegiverOffer(room, team) {
   ensureOffer(room);
   ensureRuntime(room);
+  ensureTurn(room);
 
   clearOfferTimer(room);
 
+  // Check if this team has any connected players
+  if (!hasConnectedPlayers(room, team)) {
+    console.log(`Team ${team} has no connected players - auto-skipping to other team`);
+
+    const otherTeam = team === "blue" ? "red" : "blue";
+
+    // Check if other team has players
+    if (!hasConnectedPlayers(room, otherTeam)) {
+      console.log("Both teams offline - returning to lobby");
+      room.status = ROOM_STATUS.LOBBY;
+      room.round.offer = null;
+      emitRoomSync(room);
+      io.to(room.code).emit("game:paused", {
+        roomCode: room.code,
+        reason: "Both teams offline",
+      });
+      return { ok: false, error: "Both teams offline" };
+    }
+
+    // Auto-skip to other team
+    room.turn.nextTeam = otherTeam;
+    return sendCluegiverOffer(room, otherTeam);
+  }
+
   const offeredToken = pickNextCluegiverToken(room, team);
-  if (!offeredToken) return { ok: false, error: `No connected ${team} players` };
+  if (!offeredToken) {
+    // This shouldn't happen since we checked hasConnectedPlayers, but handle it
+    room.status = ROOM_STATUS.LOBBY;
+    room.round.offer = null;
+    emitRoomSync(room);
+    return { ok: false, error: `No connected ${team} players` };
+  }
 
   const offered = room.playersByToken?.[offeredToken];
-  if (!offered?.socketId) return { ok: false, error: "Offered player missing socket" };
+  if (!offered?.socketId) {
+    room.status = ROOM_STATUS.LOBBY;
+    room.round.offer = null;
+    emitRoomSync(room);
+    return { ok: false, error: "Offered player missing socket" };
+  }
 
   room.round.offer = {
     team,
@@ -323,6 +398,9 @@ function sendCluegiverOffer(room, team) {
     offeredAt: Date.now(),
     expiresAt: Date.now() + 15000,
   };
+
+  // Set room status to OFFER when offer is sent
+  room.status = ROOM_STATUS.OFFER;
 
   io.to(offered.socketId).emit("cluegiver:offer", {
     roomCode: room.code,
@@ -343,8 +421,13 @@ function sendCluegiverOffer(room, team) {
       room.round.offer = null;
       room.lastActivity = Date.now();
 
+      // Auto-decline on timeout - send to next player
       const next = sendCluegiverOffer(room, sameTeam);
-      if (!next.ok) emitRoomSync(room);
+      if (!next.ok) {
+        // No more players available - return to lobby
+        room.status = ROOM_STATUS.LOBBY;
+        emitRoomSync(room);
+      }
     } catch (e) {
       console.error("Offer timeout handler error:", e);
     }
@@ -395,7 +478,7 @@ function startRoundNow(room, clueGiverToken) {
 
   room.round.offer = null;
 
-  room.status = "playing";
+  room.status = ROOM_STATUS.RUNNING;
   room.turn.nextTeam = activeTeam === "blue" ? "red" : "blue";
   room.lastActivity = Date.now();
 
@@ -582,7 +665,8 @@ function endRound(room, reason = "time") {
   ensureScores(room);
   clearRoundTimers(room);
 
-  room.status = "lobby";
+  // Transition to ROUND_END for 3 seconds to show full board reveal
+  room.status = ROOM_STATUS.ROUND_END;
   room.lastActivity = Date.now();
 
   emitRoomSync(room);
@@ -595,6 +679,18 @@ function endRound(room, reason = "time") {
     guessed: room.round.guessed,
     scores: room.scores,
   });
+
+  // Auto-transition to lobby after 3 seconds
+  setTimeout(() => {
+    const currentRoom = getRoom(room.code);
+    if (currentRoom && currentRoom.status === ROOM_STATUS.ROUND_END) {
+      resetRoundState(currentRoom);
+      currentRoom.status = ROOM_STATUS.LOBBY;
+      currentRoom.lastActivity = Date.now();
+      emitRoomSync(currentRoom);
+      emitRoundSync(currentRoom);
+    }
+  }, 3000);
 }
 
 function endGame(room, winningTeam) {
@@ -606,7 +702,7 @@ function endGame(room, winningTeam) {
   ensureScores(room);
   clearRoundTimers(room);
 
-  room.status = "lobby";
+  room.status = ROOM_STATUS.ENDED;
   room.lastActivity = Date.now();
 
   emitRoomSync(room);
@@ -983,9 +1079,37 @@ io.on("connection", (socket) => {
       offer.acceptedToken = player.token;
 
       clearOfferTimer(room);
+
+      // Set room status to ACCEPTED
+      room.status = ROOM_STATUS.ACCEPTED;
       room.lastActivity = Date.now();
 
       emitRoomSync(room);
+
+      // Start a 30-second timeout - if cluegiver doesn't start, restart offer
+      room.runtime.offerTimeoutId = setTimeout(() => {
+        try {
+          const currentRoom = getRoom(room.code);
+          if (!currentRoom || currentRoom.status !== ROOM_STATUS.ACCEPTED) return;
+
+          ensureOffer(currentRoom);
+          if (!currentRoom.round.offer || currentRoom.round.offer.status !== "accepted") return;
+
+          const team = currentRoom.round.offer.team;
+          currentRoom.round.offer = null;
+          currentRoom.lastActivity = Date.now();
+
+          console.log(`Accepted cluegiver timeout - restarting offer for team ${team}`);
+          const next = sendCluegiverOffer(currentRoom, team);
+          if (!next.ok) {
+            currentRoom.status = ROOM_STATUS.LOBBY;
+            emitRoomSync(currentRoom);
+          }
+        } catch (e) {
+          console.error("Accepted timeout handler error:", e);
+        }
+      }, 30000);
+
       cb?.({ ok: true });
     } catch (err) {
       console.error("cluegiver:accept failed:", err);
@@ -1051,7 +1175,10 @@ io.on("connection", (socket) => {
       ensureSettings(room);
       ensureOffer(room);
 
-      if (room.status !== "lobby") return cb?.({ ok: false, error: "Can only start from lobby" });
+      // Must be in ACCEPTED status to start
+      if (room.status !== ROOM_STATUS.ACCEPTED) {
+        return cb?.({ ok: false, error: "Must accept cluegiver role first" });
+      }
 
       const player = getPlayerBySocket(room, socket.id);
       if (!player) return cb?.({ ok: false, error: "Player not in room" });
@@ -1093,8 +1220,9 @@ io.on("connection", (socket) => {
       const gate = requireHost(room, socket);
       if (!gate.ok) return cb?.(gate);
 
-      if (room.status !== "lobby") {
-        return cb?.({ ok: false, error: "Can only start from lobby" });
+      // Can only start from LOBBY status (not from OFFER, ACCEPTED, RUNNING, etc.)
+      if (!validateRoomState(room, [ROOM_STATUS.LOBBY, ROOM_STATUS.ROUND_END])) {
+        return cb?.({ ok: false, error: `Can only start from lobby (current: ${room.status})` });
       }
 
       const activeTeam = room.turn?.nextTeam || "blue";

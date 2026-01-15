@@ -362,55 +362,39 @@ export default function App() {
     });
   }
 
-  // ---- THE FIX: start accepted round with aggressive logging + event-name fallback
+  // Start the round after accepting cluegiver role
   function startAcceptedRound() {
     if (!roomCode) return;
 
-    // if you click and don't see this, your click isn't reaching React at all
-    pushLog(`🧷 startAcceptedRound() CLICKED roomCode=${roomCode}`);
-    pushLog(`🧪 socket.id=${socket?.id} connected=${socket?.connected}`);
+    pushLog(`Starting round as cluegiver`);
 
-    const candidates = [
-      "round:startAccepted", // one naming style
-      "round:start:accepted", // another naming style
-      "round:start:acceptedRound", // just in case (people name things badly)
-      "round:start:accepted", // yes, duplicate-ish, still fine for testing
-    ];
-
-    let acked = false;
-
-    // try each name until one acks
-    candidates.forEach((eventName, idx) => {
-      setTimeout(() => {
-        if (acked) return;
-
-        pushLog(`📤 emitting "${eventName}"...`);
-
-        let callbackCalled = false;
-
-        socket.emit(eventName, { roomCode }, (resp) => {
-          callbackCalled = true;
-          acked = true;
-          pushLog(`🟣 ACK from "${eventName}" ok=${resp?.ok}`);
-          if (!resp?.ok) {
-            pushLog(`❌ accepted-start error: ${resp?.error || "unknown"}`);
-          }
-        });
-
-        // if backend doesn't have that event, callback never fires
-        setTimeout(() => {
-          if (acked) return;
-          if (!callbackCalled) {
-            pushLog(`🕳 no ACK for "${eventName}" (likely wrong event name)`);
-          }
-        }, 700);
-      }, idx * 200); // stagger the attempts
+    socket.emit("round:startAccepted", { roomCode }, (resp) => {
+      if (!resp?.ok) {
+        pushLog(`❌ Start round error: ${resp?.error || "unknown"}`);
+      } else {
+        pushLog(`✅ Round started successfully`);
+      }
     });
   }
 
   const players = Object.values(room?.playersByToken || {});
   const me = playerToken ? room?.playersByToken?.[playerToken] : null;
   const myTeam = me?.team || null;
+
+  // Helper to display room status in a user-friendly way
+  const getStatusDisplay = (status) => {
+    const statusMap = {
+      lobby: { text: "Lobby", color: "#6c757d" },
+      offer: { text: "Selecting Cluegiver", color: "#0dcaf0" },
+      accepted: { text: "Ready to Start", color: "#198754" },
+      running: { text: "Playing", color: "#0d6efd" },
+      round_end: { text: "Round Ended", color: "#ffc107" },
+      ended: { text: "Game Over", color: "#dc3545" },
+    };
+    return statusMap[status] || { text: status, color: "#6c757d" };
+  };
+
+  const statusDisplay = getStatusDisplay(room?.status);
 
   const isHost = !!me?.isHost;
   const inRoom = !!roomCode && !!playerToken;
@@ -434,7 +418,24 @@ export default function App() {
 
   return (
     <div style={{ padding: 16, fontFamily: "system-ui, Arial" }}>
-      <h2 style={{ marginTop: 0 }}>Taboo Speed</h2>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+        <h2 style={{ marginTop: 0, marginBottom: 0 }}>Taboo Speed</h2>
+        {inRoom && (
+          <span
+            style={{
+              display: "inline-block",
+              padding: "4px 12px",
+              borderRadius: 4,
+              fontSize: 14,
+              fontWeight: 600,
+              backgroundColor: statusDisplay.color,
+              color: "white",
+            }}
+          >
+            {statusDisplay.text}
+          </span>
+        )}
+      </div>
 
       <div style={{ opacity: 0.8, marginBottom: 12 }}>
         Backend: {BACKEND_URL} <br />

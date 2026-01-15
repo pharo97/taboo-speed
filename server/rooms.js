@@ -4,6 +4,18 @@ const { loadWordBank } = require("./wordbank");
 const rooms = {}; // roomCode -> room object
 
 // --------------------
+// ROOM STATUS CONSTANTS
+// --------------------
+const ROOM_STATUS = {
+  LOBBY: "lobby",           // Waiting for host to start turn
+  OFFER: "offer",           // Cluegiver being selected (offer pending)
+  ACCEPTED: "accepted",     // Cluegiver accepted, waiting to start
+  RUNNING: "running",       // Round active
+  ROUND_END: "round_end",   // Brief transition after round ends
+  ENDED: "ended",           // Game over (target score reached)
+};
+
+// --------------------
 // UTILITIES
 // --------------------
 function generateRoomCode(length = 6) {
@@ -199,4 +211,5 @@ module.exports = {
   getRoom,
   sanitizeRoom,
   generateBoard,
+  ROOM_STATUS,
 };
