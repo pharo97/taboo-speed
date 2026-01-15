@@ -418,7 +418,14 @@ export default function App() {
 
   return (
     <div style={{ padding: 16, fontFamily: "system-ui, Arial" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          marginBottom: 12,
+        }}
+      >
         <h2 style={{ marginTop: 0, marginBottom: 0 }}>Taboo Speed</h2>
         {inRoom && (
           <span
