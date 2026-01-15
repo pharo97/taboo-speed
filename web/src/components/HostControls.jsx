@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 export default function HostControls({
   onStartRound,
   onUpdateSettings,
+  onEndGame,
   disabled,
   currentSettings,
 
@@ -51,10 +52,10 @@ export default function HostControls({
 
   return (
     <div style={card}>
-      <h3 style={{ marginTop: 0 }}>Host Controls</h3>
+      <h3 style={title}>Host Controls</h3>
 
       <div style={{ display: "grid", gap: 8, marginBottom: 12 }}>
-        <label>
+        <label style={label}>
           Round Time (seconds)
           <input
             type="number"
@@ -65,10 +66,11 @@ export default function HostControls({
               setDraft((d) => ({ ...d, roundSeconds: e.target.value }))
             }
             disabled={disabled}
+            style={input}
           />
         </label>
 
-        <label>
+        <label style={label}>
           Target Score
           <input
             type="number"
@@ -79,22 +81,33 @@ export default function HostControls({
               setDraft((d) => ({ ...d, targetScore: e.target.value }))
             }
             disabled={disabled}
+            style={input}
           />
         </label>
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button onClick={applySettings} disabled={disabled}>
+          <button onClick={applySettings} disabled={disabled} style={btn}>
             Apply Settings
           </button>
-          <button onClick={resetToCurrent} disabled={disabled} type="button">
+          <button onClick={resetToCurrent} disabled={disabled} type="button" style={btn}>
             Reset
           </button>
         </div>
       </div>
 
-      <button disabled={startDisabled} onClick={onStartRound}>
-        {startLabel}
-      </button>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button disabled={startDisabled} onClick={onStartRound} style={btnPrimary}>
+          {startLabel}
+        </button>
+
+        <button
+          onClick={onEndGame}
+          style={btnDanger}
+          title="Force end the game (determines winner by current score)"
+        >
+          End Game
+        </button>
+      </div>
 
       {offerActive ? (
         <div style={hint}>
@@ -107,10 +120,63 @@ export default function HostControls({
 }
 
 const card = {
-  border: "1px solid #ddd",
+  border: "1px solid #333",
   padding: 12,
   borderRadius: 10,
   marginBottom: 12,
+  background: "#1a1a1a",
+  color: "#fff",
+};
+
+const title = { marginTop: 0, marginBottom: 10, color: "#fff" };
+
+const label = {
+  display: "block",
+  color: "#fff",
+  marginBottom: 8,
+};
+
+const input = {
+  display: "block",
+  width: "100%",
+  padding: "12px 14px",
+  marginTop: 4,
+  borderRadius: 8,
+  border: "1px solid #444",
+  background: "#2a2a2a",
+  color: "#fff",
+  outline: "none",
+  boxSizing: "border-box",
+  fontSize: 16,
+  minHeight: 44,
+};
+
+const btn = {
+  padding: "12px 16px",
+  borderRadius: 8,
+  border: "1px solid #555",
+  background: "#2a2a2a",
+  color: "#fff",
+  cursor: "pointer",
+  transition: "all 0.2s",
+  fontSize: 14,
+  minHeight: 44,
+};
+
+const btnPrimary = {
+  ...btn,
+  border: "1px solid #fff",
+  background: "#fff",
+  color: "#000",
+  fontWeight: 700,
+};
+
+const btnDanger = {
+  ...btn,
+  border: "1px solid #ef4444",
+  background: "#ef4444",
+  color: "#fff",
+  fontWeight: 600,
 };
 
 const hint = {
@@ -118,4 +184,5 @@ const hint = {
   fontSize: 12,
   opacity: 0.75,
   lineHeight: 1.4,
+  color: "#aaa",
 };

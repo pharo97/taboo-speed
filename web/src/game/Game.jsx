@@ -1,6 +1,7 @@
 import Board from "./Board";
 import ClueInput from "./ClueInput";
 import GuessInput from "./GuessInput";
+import GuessLog from "./GuessLog";
 
 export default function Game({
   room,
@@ -20,9 +21,13 @@ export default function Game({
 
   // accepted cluegiver starts when ready
   onStartAcceptedRound,
+
+  // guess log
+  guessLog,
 }) {
-  const playing = room?.status === "playing" && !!round;
+  const playing = room?.status === "running" && !!round;
   const inLobby = room?.status === "lobby";
+  const accepted = room?.status === "accepted";
 
   const scores = room?.scores || { blue: 0, red: 0 };
   const clueText = round?.clue?.text || "";
@@ -149,7 +154,7 @@ export default function Game({
                 Accepted cluegiver: <b>{acceptedName}</b>
               </div>
 
-              {inLobby && isAcceptedCluegiver ? (
+              {accepted && isAcceptedCluegiver ? (
                 <>
                   <div style={{ fontSize: 12, opacity: 0.75, marginTop: 8 }}>
                     Start the round when your team is ready, or pass it on.
@@ -180,7 +185,7 @@ export default function Game({
                     </div>
                   ) : null}
                 </>
-              ) : inLobby ? (
+              ) : accepted ? (
                 <div style={{ fontSize: 12, opacity: 0.75, marginTop: 8 }}>
                   Waiting for <b>{acceptedName}</b> to start…
                 </div>
@@ -189,6 +194,16 @@ export default function Game({
           ) : null}
         </div>
       )}
+
+      {/* Show board for accepted cluegiver BEFORE starting */}
+      {accepted && isAcceptedCluegiver && round?.board?.length > 0 ? (
+        <>
+          <div style={{ marginBottom: 10, opacity: 0.9 }}>
+            Preview your board. Click "Start Round" when ready!
+          </div>
+          <Board tiles={round.board || []} role="cluegiver" guessed={round.guessed || {}} />
+        </>
+      ) : null}
 
       {playing ? (
         <>
@@ -222,7 +237,7 @@ export default function Game({
             </div>
           </div>
 
-          <Board tiles={round.board || []} role={role} />
+          <Board tiles={round.board || []} role={role} guessed={round.guessed || {}} />
 
           {role === "cluegiver" ? (
             <ClueInput onSubmit={onSetClue} />
@@ -235,6 +250,9 @@ export default function Game({
                 : "Pick a team to participate."}
             </div>
           )}
+
+          {/* Show guess log during active round */}
+          <GuessLog guesses={guessLog} maxDisplay={5} />
         </>
       ) : (
         <>
@@ -243,7 +261,7 @@ export default function Game({
           {endedInfo?.payload?.fullBoard?.length ? (
             <div style={{ marginTop: 12 }}>
               <h4 style={{ marginBottom: 8 }}>Last board reveal</h4>
-              <Board tiles={endedInfo.payload.fullBoard} role={"reveal"} />
+              <Board tiles={endedInfo.payload.fullBoard} role={"reveal"} guessed={endedInfo.payload.guessed || {}} />
             </div>
           ) : null}
         </>
@@ -253,10 +271,12 @@ export default function Game({
 }
 
 const card = {
-  border: "1px solid #ddd",
+  border: "1px solid #333",
   padding: 12,
   borderRadius: 10,
   marginBottom: 12,
+  background: "#1a1a1a",
+  color: "#fff",
 };
 
 const scoreWrap = {
@@ -267,50 +287,60 @@ const scoreWrap = {
 };
 
 const scoreBox = {
-  border: "1px solid #ddd",
+  border: "1px solid #333",
   borderRadius: 10,
   padding: 10,
+  background: "#0a0a0a",
 };
 
 const scoreNum = {
   fontSize: 20,
   fontWeight: 800,
+  color: "#fff",
 };
 
 const clueBox = {
-  border: "1px solid #ddd",
+  border: "1px solid #333",
   borderRadius: 10,
   padding: 10,
   marginBottom: 12,
+  background: "#0a0a0a",
 };
 
 const infoBox = {
-  border: "1px solid #eee",
+  border: "1px solid #333",
   borderRadius: 10,
   padding: 10,
   marginTop: 8,
   fontSize: 13,
   opacity: 0.85,
+  background: "#0a0a0a",
+  color: "#aaa",
 };
 
 const offerBox = {
-  border: "1px solid #ddd",
+  border: "1px solid #333",
   borderRadius: 10,
   padding: 10,
   marginBottom: 12,
-  background: "#fafafa",
+  background: "#0a0a0a",
+  color: "#fff",
 };
 
 const btn = {
   padding: "10px 12px",
   borderRadius: 10,
-  border: "1px solid #bbb",
-  background: "white",
+  border: "1px solid #555",
+  background: "#2a2a2a",
+  color: "#fff",
   cursor: "pointer",
+  transition: "all 0.2s",
 };
 
 const btnPrimary = {
   ...btn,
-  border: "1px solid #333",
+  border: "1px solid #fff",
+  background: "#fff",
+  color: "#000",
   fontWeight: 700,
 };

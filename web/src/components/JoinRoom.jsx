@@ -21,8 +21,8 @@ export default function JoinRoom({ onJoin, disabled }) {
   }
 
   return (
-    <div style={{ border: "1px solid #ddd", padding: 12, marginBottom: 12 }}>
-      <h3 style={{ marginTop: 0 }}>Join Game</h3>
+    <div style={card}>
+      <h3 style={title}>Join Game</h3>
 
       <form onSubmit={submit} style={{ display: "grid", gap: 8 }}>
         <input
@@ -32,6 +32,7 @@ export default function JoinRoom({ onJoin, disabled }) {
           autoCapitalize="characters"
           spellCheck={false}
           disabled={!!disabled}
+          style={input}
         />
 
         <input
@@ -39,9 +40,10 @@ export default function JoinRoom({ onJoin, disabled }) {
           onChange={(e) => setName(e.target.value)}
           placeholder="Your Name (optional)"
           disabled={!!disabled}
+          style={input}
         />
 
-        <button type="submit" disabled={!!disabled}>
+        <button type="submit" disabled={!!disabled} style={btnPrimary}>
           Join
         </button>
 
@@ -52,3 +54,45 @@ export default function JoinRoom({ onJoin, disabled }) {
     </div>
   );
 }
+
+const card = {
+  border: "1px solid #333",
+  padding: 12,
+  marginBottom: 12,
+  borderRadius: 10,
+  background: "#1a1a1a",
+  color: "#fff",
+};
+
+const title = { marginTop: 0, marginBottom: 10, color: "#fff" };
+
+const input = {
+  padding: "12px 14px",
+  borderRadius: 8,
+  border: "1px solid #444",
+  background: "#2a2a2a",
+  color: "#fff",
+  outline: "none",
+  fontSize: 16,
+  minHeight: 44,
+};
+
+const btn = {
+  padding: "12px 16px",
+  borderRadius: 8,
+  border: "1px solid #555",
+  background: "#2a2a2a",
+  color: "#fff",
+  cursor: "pointer",
+  transition: "all 0.2s",
+  fontSize: 14,
+  minHeight: 44,
+};
+
+const btnPrimary = {
+  ...btn,
+  border: "1px solid #fff",
+  background: "#fff",
+  color: "#000",
+  fontWeight: 700,
+};

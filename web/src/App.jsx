@@ -7,6 +7,9 @@ import JoinRoom from "./components/JoinRoom";
 import TeamPicker from "./components/TeamPicker";
 import PlayerList from "./components/PlayerList";
 import HostControls from "./components/HostControls";
+import Toast from "./components/Toast";
+import ReconnectingOverlay from "./components/ReconnectingOverlay";
+import ResponsiveContainer from "./components/ResponsiveContainer";
 
 import Game from "./game/Game";
 
@@ -29,8 +32,12 @@ export default function App() {
 
   const [remainingMs, setRemainingMs] = useState(null);
   const [endedInfo, setEndedInfo] = useState(null);
+  const [guessLog, setGuessLog] = useState([]);
 
   const [log, setLog] = useState([]);
+  const [toasts, setToasts] = useState([]);
+  const [isReconnecting, setIsReconnecting] = useState(false);
+  const [previousPlayerStates, setPreviousPlayerStates] = useState({});
 
   const leavingRef = useRef(false);
   const leaveRoomRef = useRef(null);
@@ -38,6 +45,15 @@ export default function App() {
   const pushLog = useCallback((line) => {
     const t = new Date().toLocaleTimeString();
     setLog((prev) => [`${t}  ${line}`, ...prev].slice(0, 200));
+  }, []);
+
+  const addToast = useCallback((toast) => {
+    const id = Date.now() + Math.random();
+    setToasts((prev) => [...prev, { id, ...toast }]);
+  }, []);
+
+  const dismissToast = useCallback((id) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
   const resetLocalIdentity = useCallback(() => {
@@ -52,6 +68,7 @@ export default function App() {
     setRole(null);
     setRemainingMs(null);
     setEndedInfo(null);
+    setGuessLog([]);
   }, []);
 
   const leaveRoom = useCallback(() => {
@@ -110,9 +127,20 @@ export default function App() {
           { roomCode: rc, playerToken: pt },
           (resp) => {
             pushLog(`🔁 room:rejoin ok=${resp?.ok}`);
-            if (!resp?.ok) resetLocalIdentity();
+            if (resp?.ok) {
+              setIsReconnecting(false);
+              addToast({
+                type: "success",
+                message: "Reconnected successfully!",
+              });
+            } else {
+              resetLocalIdentity();
+              setIsReconnecting(false);
+            }
           }
         );
+      } else {
+        setIsReconnecting(false);
       }
     }
 
@@ -121,6 +149,16 @@ export default function App() {
       setSocketId("");
       if (!leavingRef.current) {
         pushLog(`❌ disconnected (${reason || "no reason"})`);
+
+        // Show reconnecting overlay if we're in a room
+        const rc = localStorage.getItem("roomCode");
+        if (rc) {
+          setIsReconnecting(true);
+          addToast({
+            type: "warning",
+            message: "Connection lost. Attempting to reconnect...",
+          });
+        }
       }
     }
 
@@ -130,6 +168,40 @@ export default function App() {
 
     function onRoomSync(payload) {
       setRoom(payload);
+
+      // Check for player connection changes
+      const currentPlayers = payload?.playersByToken || {};
+      Object.entries(currentPlayers).forEach(([token, player]) => {
+        const wasConnected = previousPlayerStates[token]?.connected;
+        const isNowConnected = player.connected;
+
+        // Skip notification for self
+        if (token === playerToken) return;
+
+        // Player disconnected
+        if (wasConnected && !isNowConnected) {
+          addToast({
+            type: "info",
+            message: `${player.name} disconnected`,
+          });
+        }
+
+        // Player reconnected
+        if (!wasConnected && isNowConnected && previousPlayerStates[token]) {
+          addToast({
+            type: "success",
+            message: `${player.name} reconnected`,
+          });
+        }
+      });
+
+      // Update previous states
+      setPreviousPlayerStates(
+        Object.entries(currentPlayers).reduce((acc, [token, player]) => {
+          acc[token] = { connected: player.connected };
+          return acc;
+        }, {})
+      );
 
       const offer = payload?.round?.offer || null;
       const offerStatus = offer?.status || "none";
@@ -151,6 +223,12 @@ export default function App() {
     function onRoundSync(payload) {
       setRound(payload?.round || null);
       setRole(payload?.role || null);
+
+      // Clear guess log when a new round starts
+      if (payload?.round?.number) {
+        setGuessLog([]);
+      }
+
       pushLog(
         `🟢 round:sync #${payload?.round?.number} team=${payload?.round?.activeTeam} role=${payload?.role}`
       );
@@ -184,6 +262,18 @@ export default function App() {
       pushLog(
         `✅ guess:correct "${payload?.word}" +${payload?.points} (${payload?.guessedBy})`
       );
+
+      // Add to guess log (we need to get team from room state)
+      setGuessLog((prev) => [
+        ...prev,
+        {
+          word: payload.word,
+          points: payload.points,
+          guessedBy: payload.guessedBy,
+          team: room?.round?.activeTeam || "unknown",
+          timestamp: Date.now(),
+        },
+      ]);
     }
 
     function onGuessApplied(payload) {
@@ -236,7 +326,7 @@ export default function App() {
       socket.off("room:kicked", onKicked);
       socket.off("cluegiver:offer", onOffer);
     };
-  }, [socket, pushLog, resetLocalIdentity]);
+  }, [socket, pushLog, resetLocalIdentity, addToast, playerToken, previousPlayerStates]);
 
   // --- actions
   function createRoom(hostName) {
@@ -346,6 +436,17 @@ export default function App() {
     });
   }
 
+  function endGame() {
+    if (!roomCode) return;
+    const confirmed = window.confirm("Are you sure you want to end the game? Winner will be determined by current score.");
+    if (!confirmed) return;
+
+    socket.emit("game:end", { roomCode }, (resp) => {
+      pushLog(`🏁 game:end ok=${resp?.ok} winner=${resp?.winningTeam}`);
+      if (!resp?.ok) pushLog(`❌ end game error: ${resp?.error || "unknown"}`);
+    });
+  }
+
   function acceptOffer() {
     if (!roomCode) return;
     socket.emit("cluegiver:accept", { roomCode }, (resp) => {
@@ -417,7 +518,7 @@ export default function App() {
       : "Someone";
 
   return (
-    <div style={{ padding: 16, fontFamily: "system-ui, Arial" }}>
+    <div style={{ padding: "8px 12px", fontFamily: "system-ui, Arial", background: "#0a0a0a", minHeight: "100vh" }}>
       <div
         style={{
           display: "flex",
@@ -426,17 +527,18 @@ export default function App() {
           marginBottom: 12,
         }}
       >
-        <h2 style={{ marginTop: 0, marginBottom: 0 }}>Taboo Speed</h2>
+        <h2 style={{ marginTop: 0, marginBottom: 0, color: "#fff", fontSize: 28, fontWeight: 800 }}>Taboo Speed</h2>
         {inRoom && (
           <span
             style={{
               display: "inline-block",
               padding: "4px 12px",
-              borderRadius: 4,
-              fontSize: 14,
-              fontWeight: 600,
+              borderRadius: 6,
+              fontSize: 12,
+              fontWeight: 700,
               backgroundColor: statusDisplay.color,
               color: "white",
+              letterSpacing: "0.05em",
             }}
           >
             {statusDisplay.text}
@@ -444,7 +546,7 @@ export default function App() {
         )}
       </div>
 
-      <div style={{ opacity: 0.8, marginBottom: 12 }}>
+      <div style={{ opacity: 0.5, marginBottom: 12, fontSize: 12, color: "#aaa" }}>
         Backend: {BACKEND_URL} <br />
         Status: {connected ? "CONNECTED" : "DISCONNECTED"} <br />
         Socket ID: {socketId || "-"}
@@ -454,11 +556,12 @@ export default function App() {
       {inRoom && room?.status === "lobby" && currentOffer && (
         <div
           style={{
-            border: "2px solid #333",
+            border: "1px solid #444",
             padding: 12,
             borderRadius: 10,
             marginBottom: 12,
-            background: "#fafafa",
+            background: "#1a1a1a",
+            color: "#fff",
           }}
         >
           {currentOffer.status === "pending" ? (
@@ -517,7 +620,7 @@ export default function App() {
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+      <ResponsiveContainer>
         <div>
           <Lobby
             inRoom={inRoom}
@@ -553,6 +656,7 @@ export default function App() {
               offer={room?.round?.offer || null}
               onStartRound={startRound}
               onUpdateSettings={updateSettings}
+              onEndGame={endGame}
               currentSettings={room?.settings}
               disabled={room?.status === "playing"}
             />
@@ -572,17 +676,20 @@ export default function App() {
             onAcceptOffer={acceptOffer}
             onSkipOffer={skipOffer}
             onStartAcceptedRound={startAcceptedRound}
+            guessLog={guessLog}
           />
         </div>
 
         <div>
-          <h3>Live log</h3>
+          <h3 style={{ color: "#fff", marginBottom: 10 }}>Live log</h3>
           <div
             style={{
-              border: "1px solid #ddd",
+              border: "1px solid #333",
+              background: "#0a0a0a",
               padding: 12,
               height: 420,
               overflow: "auto",
+              borderRadius: 10,
             }}
           >
             {log.map((l, i) => (
@@ -590,7 +697,9 @@ export default function App() {
                 key={i}
                 style={{
                   fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-                  fontSize: 12,
+                  fontSize: 11,
+                  color: "#aaa",
+                  marginBottom: 2,
                 }}
               >
                 {l}
@@ -598,7 +707,13 @@ export default function App() {
             ))}
           </div>
         </div>
-      </div>
+      </ResponsiveContainer>
+
+      {/* Toast Notifications */}
+      <Toast toasts={toasts} onDismiss={dismissToast} />
+
+      {/* Reconnecting Overlay */}
+      <ReconnectingOverlay show={isReconnecting && !connected} />
     </div>
   );
 }

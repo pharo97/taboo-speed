@@ -665,7 +665,7 @@ function endRound(room, reason = "time") {
   ensureScores(room);
   clearRoundTimers(room);
 
-  // Transition to ROUND_END for 3 seconds to show full board reveal
+  // Transition to ROUND_END for 5 seconds to show full board reveal
   room.status = ROOM_STATUS.ROUND_END;
   room.lastActivity = Date.now();
 
@@ -680,7 +680,7 @@ function endRound(room, reason = "time") {
     scores: room.scores,
   });
 
-  // Auto-transition to lobby after 3 seconds
+  // Auto-transition to lobby after 5 seconds
   setTimeout(() => {
     const currentRoom = getRoom(room.code);
     if (currentRoom && currentRoom.status === ROOM_STATUS.ROUND_END) {
@@ -690,7 +690,7 @@ function endRound(room, reason = "time") {
       emitRoomSync(currentRoom);
       emitRoundSync(currentRoom);
     }
-  }, 3000);
+  }, 5000);
 }
 
 function endGame(room, winningTeam) {
@@ -1066,6 +1066,7 @@ io.on("connection", (socket) => {
 
       ensureIdentity(room);
       ensureOffer(room);
+      ensureRound(room);
 
       const player = getPlayerBySocket(room, socket.id);
       if (!player) return cb?.({ ok: false, error: "Player not in room" });
@@ -1084,7 +1085,15 @@ io.on("connection", (socket) => {
       room.status = ROOM_STATUS.ACCEPTED;
       room.lastActivity = Date.now();
 
+      // Generate board NOW so cluegiver can see it before starting
+      room.round.board = generateBoard(24);
+      room.round.clueGiverToken = player.token;
+      room.round.clueGiverId = player.socketId;
+      room.round.activeTeam = offer.team;
+
       emitRoomSync(room);
+      // Send board to accepted cluegiver
+      emitRoundSync(room, player.socketId);
 
       // Start a 30-second timeout - if cluegiver doesn't start, restart offer
       room.runtime.offerTimeoutId = setTimeout(() => {
@@ -1255,6 +1264,32 @@ io.on("connection", (socket) => {
     } catch (err) {
       console.error("round:start failed:", err);
       cb?.({ ok: false, error: err?.message || "Failed to start round" });
+    }
+  });
+
+  // --------------------
+  // game:end (host-only): Force end the game
+  // --------------------
+  socket.on("game:end", ({ roomCode }, cb) => {
+    try {
+      const rc = String(roomCode || "").trim().toUpperCase();
+      const room = getRoom(rc);
+      if (!room) return cb?.({ ok: false, error: "Room not found" });
+
+      const gate = requireHost(room, socket);
+      if (!gate.ok) return cb?.(gate);
+
+      ensureScores(room);
+
+      // Determine winner based on current scores
+      const winningTeam = room.scores.blue > room.scores.red ? "blue" :
+                         room.scores.red > room.scores.blue ? "red" : "tie";
+
+      endGame(room, winningTeam);
+      cb?.({ ok: true, winningTeam });
+    } catch (err) {
+      console.error("game:end failed:", err);
+      cb?.({ ok: false, error: err?.message || "Failed to end game" });
     }
   });
 

@@ -118,42 +118,59 @@ export default function Lobby({
 }
 
 const card = {
-  border: "1px solid #ddd",
+  border: "1px solid #333",
   padding: 12,
   borderRadius: 10,
   marginBottom: 12,
+  background: "#1a1a1a",
+  color: "#fff",
 };
 
-const title = { marginTop: 0, marginBottom: 10 };
+const title = { marginTop: 0, marginBottom: 10, color: "#fff" };
 
 const input = {
-  padding: "10px 12px",
-  borderRadius: 10,
-  border: "1px solid #bbb",
+  padding: "12px 14px",
+  borderRadius: 8,
+  border: "1px solid #444",
+  background: "#2a2a2a",
+  color: "#fff",
   outline: "none",
+  fontSize: 16,
+  minHeight: 44,
 };
 
 const btn = {
-  padding: "10px 12px",
-  borderRadius: 10,
-  border: "1px solid #bbb",
-  background: "white",
+  padding: "12px 16px",
+  borderRadius: 8,
+  border: "1px solid #555",
+  background: "#2a2a2a",
+  color: "#fff",
   cursor: "pointer",
+  transition: "all 0.2s",
+  fontSize: 14,
+  minHeight: 44,
 };
 
 const btnPrimary = {
   ...btn,
-  border: "1px solid #333",
-  fontWeight: 600,
+  border: "1px solid #fff",
+  background: "#fff",
+  color: "#000",
+  fontWeight: 700,
 };
 
 const btnDanger = {
   ...btn,
-  border: "1px solid #a00",
-  color: "#a00",
+  border: "1px solid #ef4444",
+  background: "#ef4444",
+  color: "#fff",
   fontWeight: 600,
 };
 
 const mono = {
   fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+  background: "#0a0a0a",
+  padding: "2px 6px",
+  borderRadius: 4,
+  fontSize: 13,
 };

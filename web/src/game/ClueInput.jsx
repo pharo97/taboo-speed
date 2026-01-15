@@ -5,21 +5,21 @@ export default function ClueInput({ onSubmit }) {
 
   return (
     <div style={{ marginTop: 8 }}>
-      <h4 style={{ margin: "8px 0" }}>Set Clue</h4>
+      <h4 style={{ margin: "8px 0", color: "#fff" }}>Set Clue</h4>
       <div style={{ display: "flex", gap: 8 }}>
         <input
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="clue..."
-          style={{ flex: 1 }}
+          style={inputStyle}
         />
-        <button
-          onClick={() => {
+        <button onClick={() => {
             const v = text.trim();
             if (!v) return;
             onSubmit(v);
             setText("");
           }}
+          style={buttonStyle}
         >
           Send
         </button>
@@ -27,3 +27,28 @@ export default function ClueInput({ onSubmit }) {
     </div>
   );
 }
+
+const inputStyle = {
+  flex: 1,
+  padding: "12px 14px",
+  borderRadius: 8,
+  border: "1px solid #444",
+  background: "#2a2a2a",
+  color: "#fff",
+  fontSize: 16,
+  outline: "none",
+  minHeight: 44,
+};
+
+const buttonStyle = {
+  padding: "12px 20px",
+  borderRadius: 8,
+  border: "1px solid #fff",
+  background: "#fff",
+  color: "#000",
+  fontWeight: 700,
+  cursor: "pointer",
+  transition: "all 0.2s",
+  fontSize: 14,
+  minHeight: 44,
+};
