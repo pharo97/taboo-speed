@@ -1,4 +1,6 @@
 import { useMemo, useState } from "react";
+import { SettingsIcon, PlayIcon, XIcon } from "./Icons";
+import Button from "./Button";
 
 export default function HostControls({
   onStartRound,
@@ -52,9 +54,12 @@ export default function HostControls({
 
   return (
     <div style={card}>
-      <h3 style={title}>Host Controls</h3>
+      <div style={header}>
+        <SettingsIcon size={18} color="var(--text-primary)" />
+        <h4 style={title}>Host Controls</h4>
+      </div>
 
-      <div style={{ display: "grid", gap: 8, marginBottom: 12 }}>
+      <div style={settingsGrid}>
         <label style={label}>
           Round Time (seconds)
           <input
@@ -85,34 +90,34 @@ export default function HostControls({
           />
         </label>
 
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button onClick={applySettings} disabled={disabled} style={btn}>
+        <div style={buttonGroup}>
+          <Button onClick={applySettings} disabled={disabled} variant="default">
             Apply Settings
-          </button>
-          <button onClick={resetToCurrent} disabled={disabled} type="button" style={btn}>
+          </Button>
+          <Button onClick={resetToCurrent} disabled={disabled} type="button" variant="ghost" size="small">
             Reset
-          </button>
+          </Button>
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <button disabled={startDisabled} onClick={onStartRound} style={btnPrimary}>
+      <div style={actionsSection}>
+        <Button disabled={startDisabled} onClick={onStartRound} variant="accent" size="large">
+          <PlayIcon size={16} color="#fff" />
           {startLabel}
-        </button>
+        </Button>
 
-        <button
+        <Button
           onClick={onEndGame}
-          style={btnDanger}
-          title="Force end the game (determines winner by current score)"
+          variant="danger"
         >
+          <XIcon size={16} color="#fff" />
           End Game
-        </button>
+        </Button>
       </div>
 
       {offerActive ? (
         <div style={hint}>
-          Host already started cluegiver selection. Wait for accept/skip. After
-          accept, the cluegiver starts when ready.
+          Host already started cluegiver selection. Wait for accept/skip. After accept, the cluegiver starts when ready.
         </div>
       ) : null}
     </div>
@@ -120,69 +125,73 @@ export default function HostControls({
 }
 
 const card = {
-  border: "1px solid #333",
-  padding: 12,
-  borderRadius: 10,
-  marginBottom: 12,
-  background: "#1a1a1a",
-  color: "#fff",
+  border: "1px solid var(--border-primary)",
+  padding: "var(--space-md)",
+  borderRadius: "var(--radius-md)",
+  marginBottom: "var(--space-md)",
+  background: "var(--bg-card)",
+  color: "var(--text-primary)",
 };
 
-const title = { marginTop: 0, marginBottom: 10, color: "#fff" };
+const header = {
+  display: "flex",
+  alignItems: "center",
+  gap: "var(--space-sm)",
+  marginBottom: "var(--space-md)",
+};
+
+const title = {
+  margin: 0,
+  fontSize: "var(--text-lg)",
+  color: "var(--text-primary)",
+  fontWeight: 600,
+};
+
+const settingsGrid = {
+  display: "grid",
+  gap: "var(--space-md)",
+  marginBottom: "var(--space-md)",
+};
 
 const label = {
   display: "block",
-  color: "#fff",
-  marginBottom: 8,
+  color: "var(--text-primary)",
+  fontSize: "var(--text-sm)",
+  fontWeight: 600,
 };
 
 const input = {
   display: "block",
   width: "100%",
-  padding: "12px 14px",
-  marginTop: 4,
-  borderRadius: 8,
-  border: "1px solid #444",
-  background: "#2a2a2a",
-  color: "#fff",
+  padding: "var(--space-md)",
+  marginTop: "var(--space-xs)",
+  borderRadius: "var(--radius-md)",
+  border: "1px solid var(--border-secondary)",
+  background: "var(--bg-tertiary)",
+  color: "var(--text-primary)",
   outline: "none",
   boxSizing: "border-box",
-  fontSize: 16,
-  minHeight: 44,
+  fontSize: "var(--text-base)",
+  minHeight: "44px",
+  transition: "all 0.2s ease",
 };
 
-const btn = {
-  padding: "12px 16px",
-  borderRadius: 8,
-  border: "1px solid #555",
-  background: "#2a2a2a",
-  color: "#fff",
-  cursor: "pointer",
-  transition: "all 0.2s",
-  fontSize: 14,
-  minHeight: 44,
+const buttonGroup = {
+  display: "flex",
+  gap: "var(--space-sm)",
+  flexWrap: "wrap",
 };
 
-const btnPrimary = {
-  ...btn,
-  border: "1px solid #fff",
-  background: "#fff",
-  color: "#000",
-  fontWeight: 700,
-};
-
-const btnDanger = {
-  ...btn,
-  border: "1px solid #ef4444",
-  background: "#ef4444",
-  color: "#fff",
-  fontWeight: 600,
+const actionsSection = {
+  display: "flex",
+  gap: "var(--space-sm)",
+  flexWrap: "wrap",
 };
 
 const hint = {
-  marginTop: 10,
-  fontSize: 12,
+  marginTop: "var(--space-md)",
+  fontSize: "var(--text-sm)",
+  color: "var(--text-secondary)",
   opacity: 0.75,
   lineHeight: 1.4,
-  color: "#aaa",
 };

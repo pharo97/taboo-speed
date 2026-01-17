@@ -1,5 +1,6 @@
 // web/src/components/JoinRoom.jsx
 import { useState } from "react";
+import Button from "./Button";
 
 export default function JoinRoom({ onJoin, disabled }) {
   const [roomCodeInput, setRoomCodeInput] = useState("");
@@ -22,9 +23,9 @@ export default function JoinRoom({ onJoin, disabled }) {
 
   return (
     <div style={card}>
-      <h3 style={title}>Join Game</h3>
+      <h4 style={title}>Join Existing Game</h4>
 
-      <form onSubmit={submit} style={{ display: "grid", gap: 8 }}>
+      <form onSubmit={submit} style={form}>
         <input
           value={roomCodeInput}
           onChange={(e) => setRoomCodeInput(e.target.value)}
@@ -43,12 +44,17 @@ export default function JoinRoom({ onJoin, disabled }) {
           style={input}
         />
 
-        <button type="submit" disabled={!!disabled} style={btnPrimary}>
-          Join
-        </button>
+        <Button
+          variant="primary"
+          type="submit"
+          disabled={!!disabled}
+          size="large"
+        >
+          Join Game
+        </Button>
 
-        <div style={{ fontSize: 12, opacity: 0.75 }}>
-          One code. One job. Humans will still mess it up.
+        <div style={hint}>
+          Enter the 6-character room code from your friend
         </div>
       </form>
     </div>
@@ -56,43 +62,41 @@ export default function JoinRoom({ onJoin, disabled }) {
 }
 
 const card = {
-  border: "1px solid #333",
-  padding: 12,
-  marginBottom: 12,
-  borderRadius: 10,
-  background: "#1a1a1a",
-  color: "#fff",
+  border: "1px solid var(--border-primary)",
+  padding: "var(--space-md)",
+  marginBottom: "var(--space-md)",
+  borderRadius: "var(--radius-md)",
+  background: "var(--bg-card)",
+  color: "var(--text-primary)",
 };
 
-const title = { marginTop: 0, marginBottom: 10, color: "#fff" };
+const title = {
+  marginTop: 0,
+  marginBottom: "var(--space-md)",
+  fontSize: "var(--text-lg)",
+  color: "var(--text-primary)",
+  fontWeight: 600,
+};
+
+const form = {
+  display: "grid",
+  gap: "var(--space-md)",
+};
 
 const input = {
-  padding: "12px 14px",
-  borderRadius: 8,
-  border: "1px solid #444",
-  background: "#2a2a2a",
-  color: "#fff",
+  padding: "var(--space-md)",
+  borderRadius: "var(--radius-md)",
+  border: "1px solid var(--border-secondary)",
+  background: "var(--bg-tertiary)",
+  color: "var(--text-primary)",
   outline: "none",
-  fontSize: 16,
-  minHeight: 44,
+  fontSize: "var(--text-base)",
+  minHeight: "48px",
+  transition: "all 0.2s ease",
 };
 
-const btn = {
-  padding: "12px 16px",
-  borderRadius: 8,
-  border: "1px solid #555",
-  background: "#2a2a2a",
-  color: "#fff",
-  cursor: "pointer",
-  transition: "all 0.2s",
-  fontSize: 14,
-  minHeight: 44,
-};
-
-const btnPrimary = {
-  ...btn,
-  border: "1px solid #fff",
-  background: "#fff",
-  color: "#000",
-  fontWeight: 700,
+const hint = {
+  fontSize: "var(--text-sm)",
+  color: "var(--text-secondary)",
+  opacity: 0.75,
 };

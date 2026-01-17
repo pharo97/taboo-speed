@@ -1,4 +1,7 @@
 // web/src/components/PlayerList.jsx
+import { UserIcon, CrownIcon, ShieldIcon } from "./Icons";
+import Button from "./Button";
+
 export default function PlayerList({
   players,
   myToken,
@@ -10,11 +13,17 @@ export default function PlayerList({
 
   return (
     <div style={container}>
-      <h4 style={title}>Players</h4>
-      {players.length === 0 && <div style={{ color: "#aaa" }}>No players</div>}
+      <div style={header}>
+        <UserIcon size={18} color="var(--text-primary)" />
+        <h4 style={title}>Players ({players.length})</h4>
+      </div>
 
-      <div style={{ display: "grid", gap: 8 }}>
-        {players.map((p, idx) => {
+      {players.length === 0 && <div style={emptyState}>No players yet</div>}
+
+      <div style={playerGrid}>
+        {players
+          .filter(p => p.connected) // Only show connected players
+          .map((p, idx) => {
           // Defensive: handle either token or playerToken.
           const token = p.token ?? p.playerToken ?? null;
           const isMe = token === myToken;
@@ -24,167 +33,183 @@ export default function PlayerList({
 
           return (
             <div key={key} style={{ ...row, ...(p.connected ? {} : rowDisconnected) }}>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <span style={{ fontWeight: 600, color: p.connected ? "#fff" : "#666" }}>
-                  {p.name || "Player"}
-                  {isMe ? <span style={{ opacity: 0.7 }}> (you)</span> : null}
-                </span>
+              <div style={playerInfo}>
+                <div style={playerMain}>
+                  <span style={playerName(p.connected)}>
+                    {p.name || "Player"}
+                    {isMe ? <span style={youTag}> (you)</span> : null}
+                  </span>
 
-                {p.isHost ? <span style={badgeHost}>HOST</span> : null}
+                  <div style={badgeContainer}>
+                    {p.isHost && (
+                      <span style={badgeHost}>
+                        <CrownIcon size={10} color="#fff" />
+                        HOST
+                      </span>
+                    )}
 
-                <span style={p.connected ? badgeOn : badgeOff}>
-                  {p.connected ? "ONLINE" : "OFFLINE"}
-                </span>
-
-                <span style={badgeTeam(p.team)}>
-                  {p.team ? p.team.toUpperCase() : "NO TEAM"}
-                </span>
-
-                {/* Debug token (remove later) */}
-                <span style={tokenPill} title="player token">
-                  {token ? token.slice(0, 6) : "NO_TOKEN"}
-                </span>
-              </div>
-
-              {/* Host actions */}
-              {isHost && !p.isHost && (
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button
-                    style={btnDanger}
-                    onClick={() => token && onKick?.(token)}
-                    disabled={!token}
-                    title="Remove this player from the room"
-                  >
-                    Kick
-                  </button>
-
-                  <button
-                    style={btn}
-                    onClick={() => token && onMakeHost?.(token)}
-                    disabled={!token}
-                    title="Transfer host powers"
-                  >
-                    Make Host
-                  </button>
+                    <span style={badgeTeam(p.team)}>
+                      <ShieldIcon size={10} color={getTeamColor(p.team)} />
+                      {p.team ? p.team.toUpperCase() : "NO TEAM"}
+                    </span>
+                  </div>
                 </div>
-              )}
+
+                {/* Host actions */}
+                {isHost && !p.isHost && (
+                  <div style={actionButtons}>
+                    <Button
+                      variant="danger"
+                      size="small"
+                      onClick={() => token && onKick?.(token)}
+                      disabled={!token}
+                    >
+                      Kick
+                    </Button>
+
+                    <Button
+                      variant="ghost"
+                      size="small"
+                      onClick={() => token && onMakeHost?.(token)}
+                      disabled={!token}
+                    >
+                      Make Host
+                    </Button>
+                  </div>
+                )}
+              </div>
             </div>
           );
         })}
       </div>
-
-      {me?.isHost ? (
-        <div style={{ marginTop: 8, fontSize: 12, opacity: 0.75, color: "#aaa" }}>
-          You're host. Try not to abuse power immediately.
-        </div>
-      ) : null}
     </div>
   );
 }
 
+function getTeamColor(team) {
+  if (team === "blue") return "var(--blue-base)";
+  if (team === "red") return "var(--red-base)";
+  return "var(--text-tertiary)";
+}
+
 const container = {
-  marginBottom: 12,
-  color: "#fff",
+  marginBottom: "var(--space-md)",
+};
+
+const header = {
+  display: "flex",
+  alignItems: "center",
+  gap: "var(--space-sm)",
+  marginBottom: "var(--space-md)",
 };
 
 const title = {
-  marginBottom: 8,
-  marginTop: 0,
-  color: "#fff",
+  margin: 0,
+  fontSize: "var(--text-lg)",
+  color: "var(--text-primary)",
+  fontWeight: 600,
+};
+
+const emptyState = {
+  color: "var(--text-tertiary)",
+  fontSize: "var(--text-sm)",
+  textAlign: "center",
+  padding: "var(--space-lg)",
+  opacity: 0.7,
+};
+
+const playerGrid = {
+  display: "grid",
+  gap: "var(--space-sm)",
 };
 
 const row = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  padding: 10,
-  border: "1px solid #333",
-  borderRadius: 10,
-  background: "#1a1a1a",
+  padding: "var(--space-md)",
+  border: "1px solid var(--border-primary)",
+  borderRadius: "var(--radius-md)",
+  background: "var(--bg-card)",
+  transition: "all 0.2s ease",
 };
 
 const rowDisconnected = {
   opacity: 0.5,
-  border: "1px solid #555",
-  background: "#111",
+  border: "1px solid var(--border-tertiary)",
+  background: "var(--bg-secondary)",
+};
+
+const playerInfo = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "var(--space-sm)",
+};
+
+const playerMain = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "var(--space-xs)",
+};
+
+const playerName = (connected) => ({
+  fontSize: "var(--text-base)",
+  fontWeight: 600,
+  color: connected ? "var(--text-primary)" : "var(--text-tertiary)",
+});
+
+const youTag = {
+  opacity: 0.6,
+  fontWeight: 400,
+  fontSize: "var(--text-sm)",
+};
+
+const badgeContainer = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "var(--space-xs)",
+  alignItems: "center",
 };
 
 const badgeBase = {
-  fontSize: 11,
+  fontSize: "var(--text-xs)",
   padding: "3px 8px",
-  borderRadius: 999,
-  border: "1px solid #555",
-  opacity: 0.9,
-  color: "#fff",
+  borderRadius: "var(--radius-full)",
+  border: "1px solid var(--border-tertiary)",
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "4px",
+  fontWeight: 600,
+  letterSpacing: "0.02em",
 };
 
 const badgeHost = {
   ...badgeBase,
-  border: "1px solid #fff",
-  fontWeight: 700,
+  border: "1px solid var(--text-primary)",
   background: "rgba(255, 255, 255, 0.1)",
+  color: "var(--text-primary)",
 };
 
 const badgeOn = {
   ...badgeBase,
-  background: "rgba(74, 222, 128, 0.1)",
-  border: "1px solid #4ade80",
-  color: "#4ade80",
+  background: "var(--success-bg)",
+  border: "1px solid var(--success)",
+  color: "var(--success)",
 };
 
 const badgeOff = {
   ...badgeBase,
   opacity: 0.5,
+  color: "var(--text-tertiary)",
 };
 
 const badgeTeam = (team) => ({
   ...badgeBase,
-  background:
-    team === "blue"
-      ? "rgba(59, 130, 246, 0.1)"
-      : team === "red"
-      ? "rgba(239, 68, 68, 0.1)"
-      : "rgba(100, 100, 100, 0.1)",
-  border:
-    team === "blue"
-      ? "1px solid #3b82f6"
-      : team === "red"
-      ? "1px solid #ef4444"
-      : "1px solid #666",
-  color:
-    team === "blue"
-      ? "#3b82f6"
-      : team === "red"
-      ? "#ef4444"
-      : "#aaa",
+  background: team === "blue" ? "var(--blue-bg)" : team === "red" ? "var(--red-bg)" : "rgba(100, 100, 100, 0.1)",
+  border: team === "blue" ? "1px solid var(--blue-base)" : team === "red" ? "1px solid var(--red-base)" : "1px solid var(--border-tertiary)",
+  color: team === "blue" ? "var(--blue-base)" : team === "red" ? "var(--red-base)" : "var(--text-tertiary)",
 });
 
-const tokenPill = {
-  fontSize: 11,
-  padding: "3px 8px",
-  borderRadius: 999,
-  border: "1px dashed #555",
-  opacity: 0.7,
-  fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-  color: "#aaa",
-};
-
-const btn = {
-  padding: "10px 14px",
-  borderRadius: 10,
-  border: "1px solid #555",
-  background: "#2a2a2a",
-  color: "#fff",
-  cursor: "pointer",
-  transition: "all 0.2s",
-  fontSize: 13,
-  minHeight: 40,
-};
-
-const btnDanger = {
-  ...btn,
-  border: "1px solid #ef4444",
-  background: "rgba(239, 68, 68, 0.1)",
-  color: "#ef4444",
-  fontWeight: 600,
+const actionButtons = {
+  display: "flex",
+  gap: "var(--space-sm)",
+  marginTop: "var(--space-xs)",
+  flexWrap: "wrap",
 };

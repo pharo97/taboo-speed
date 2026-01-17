@@ -2,6 +2,9 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { createSocket, SERVER_URL as BACKEND_URL } from "./socket";
 
+import PageShell from "./components/PageShell";
+import ActivityLog from "./components/ActivityLog";
+import Button from "./components/Button";
 import Lobby from "./components/Lobby";
 import JoinRoom from "./components/JoinRoom";
 import TeamPicker from "./components/TeamPicker";
@@ -491,6 +494,9 @@ export default function App() {
   const me = playerToken ? room?.playersByToken?.[playerToken] : null;
   const myTeam = me?.team || null;
 
+  // Determine theme based on player's team
+  const currentTheme = myTeam === "blue" ? "blue" : myTeam === "red" ? "red" : "neutral";
+
   // Helper to display room status in a user-friendly way
   const getStatusDisplay = (status) => {
     const statusMap = {
@@ -526,58 +532,36 @@ export default function App() {
       ? room?.playersByToken?.[currentOffer.acceptedToken]?.name || "Someone"
       : "Someone";
 
-  return (
-    <div
-      style={{
-        padding: "8px 12px",
-        fontFamily: "system-ui, Arial",
-        background: "#0a0a0a",
-        minHeight: "100vh",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          marginBottom: 12,
-        }}
-      >
-        <h2
-          style={{
-            marginTop: 0,
-            marginBottom: 0,
-            color: "#fff",
-            fontSize: 28,
-            fontWeight: 800,
-          }}
-        >
-          Taboo Speed
-        </h2>
-        {inRoom && (
-          <span
-            style={{
-              display: "inline-block",
-              padding: "4px 12px",
-              borderRadius: 6,
-              fontSize: 12,
-              fontWeight: 700,
-              backgroundColor: statusDisplay.color,
-              color: "white",
-              letterSpacing: "0.05em",
-            }}
-          >
-            {statusDisplay.text}
-          </span>
-        )}
-      </div>
+  // Use centered layout for home page (not in room)
+  const isCentered = !inRoom;
 
-      <div
-        style={{ opacity: 0.5, marginBottom: 12, fontSize: 12, color: "#aaa" }}
-      >
-        Backend: {BACKEND_URL} <br />
-        Status: {connected ? "CONNECTED" : "DISCONNECTED"} <br />
-        Socket ID: {socketId || "-"}
+  return (
+    <PageShell theme={currentTheme} centered={isCentered}>
+      {/* Header */}
+      <div style={isCentered ? centeredHeader : appHeader}>
+        <div style={logoContainer}>
+          <h1 style={isCentered ? centeredLogoText : logoText}>
+            {isCentered ? (
+              <>
+                <div style={mainTitle}>Candhuuf's Taboo</div>
+                <div style={subtitle}>For the Clubhouse fiends</div>
+              </>
+            ) : (
+              <span style={inGameTitle}>Candhuuf's Taboo</span>
+            )}
+          </h1>
+          {inRoom && (
+            <span style={statusBadge(statusDisplay.color)}>
+              {statusDisplay.text}
+            </span>
+          )}
+        </div>
+
+        {!isCentered && (
+          <div style={debugInfo}>
+            Backend: {BACKEND_URL} • {connected ? "CONNECTED" : "DISCONNECTED"} • Socket: {socketId || "-"}
+          </div>
+        )}
       </div>
 
       {/* Offer banner (pending + accepted) */}
@@ -648,27 +632,41 @@ export default function App() {
         </div>
       )}
 
-      <ResponsiveContainer>
-        <div>
-          <Lobby
-            inRoom={inRoom}
-            isHost={isHost}
-            roomCode={roomCode}
-            roomStatus={room?.status || "-"}
-            onCreateRoom={createRoom}
-            onLeaveRoom={leaveRoom}
-            joinForm={!inRoom ? <JoinRoom onJoin={joinRoom} /> : null}
-          />
+      {/* Home page - centered lobby only */}
+      {!inRoom && (
+        <Lobby
+          inRoom={inRoom}
+          isHost={isHost}
+          roomCode={roomCode}
+          roomStatus={room?.status || "-"}
+          onCreateRoom={createRoom}
+          onLeaveRoom={leaveRoom}
+          joinForm={<JoinRoom onJoin={joinRoom} />}
+        />
+      )}
 
-          {inRoom && room?.status === "lobby" && (
-            <TeamPicker
-              myTeam={me?.team || ""}
-              onPick={setTeam}
-              disabled={false}
+      {/* Game interface - only show when in room */}
+      {inRoom && (
+        <ResponsiveContainer>
+          <div>
+            <Lobby
+              inRoom={inRoom}
+              isHost={isHost}
+              roomCode={roomCode}
+              roomStatus={room?.status || "-"}
+              onCreateRoom={createRoom}
+              onLeaveRoom={leaveRoom}
+              joinForm={null}
             />
-          )}
 
-          {inRoom && (
+            {room?.status === "lobby" && (
+              <TeamPicker
+                myTeam={me?.team || ""}
+                onPick={setTeam}
+                disabled={false}
+              />
+            )}
+
             <PlayerList
               players={players}
               myToken={playerToken}
@@ -676,72 +674,135 @@ export default function App() {
               onKick={kickPlayer}
               onMakeHost={transferHost}
             />
-          )}
 
-          {inRoom && isHost && (
-            <HostControls
+            {isHost && (
+              <HostControls
+                room={room}
+                offer={room?.round?.offer || null}
+                onStartRound={startRound}
+                onUpdateSettings={updateSettings}
+                onEndGame={endGame}
+                currentSettings={room?.settings}
+                disabled={room?.status === "playing"}
+              />
+            )}
+
+            <Game
               room={room}
+              round={round}
+              role={role}
+              remainingMs={remainingMs}
+              endedInfo={endedInfo}
+              onSetClue={setClue}
+              onGuess={submitGuess}
+              myTeam={myTeam}
+              myToken={playerToken}
               offer={room?.round?.offer || null}
-              onStartRound={startRound}
-              onUpdateSettings={updateSettings}
-              onEndGame={endGame}
-              currentSettings={room?.settings}
-              disabled={room?.status === "playing"}
+              onAcceptOffer={acceptOffer}
+              onSkipOffer={skipOffer}
+              onStartAcceptedRound={startAcceptedRound}
+              guessLog={guessLog}
             />
-          )}
-
-          <Game
-            room={room}
-            round={round}
-            role={role}
-            remainingMs={remainingMs}
-            endedInfo={endedInfo}
-            onSetClue={setClue}
-            onGuess={submitGuess}
-            myTeam={myTeam}
-            myToken={playerToken}
-            offer={room?.round?.offer || null}
-            onAcceptOffer={acceptOffer}
-            onSkipOffer={skipOffer}
-            onStartAcceptedRound={startAcceptedRound}
-            guessLog={guessLog}
-          />
-        </div>
-
-        <div>
-          <h3 style={{ color: "#fff", marginBottom: 10 }}>Live log</h3>
-          <div
-            style={{
-              border: "1px solid #333",
-              background: "#0a0a0a",
-              padding: 12,
-              height: 420,
-              overflow: "auto",
-              borderRadius: 10,
-            }}
-          >
-            {log.map((l, i) => (
-              <div
-                key={i}
-                style={{
-                  fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-                  fontSize: 11,
-                  color: "#aaa",
-                  marginBottom: 2,
-                }}
-              >
-                {l}
-              </div>
-            ))}
           </div>
-        </div>
-      </ResponsiveContainer>
+
+          <ActivityLog log={log} maxEntries={50} />
+        </ResponsiveContainer>
+      )}
 
       {/* Toast Notifications */}
       <Toast toasts={toasts} onDismiss={dismissToast} />
 
       {/* Reconnecting Overlay */}
       <ReconnectingOverlay show={isReconnecting && !connected} />
-    </div>
+    </PageShell>
   );
 }
+
+// Styles
+const appHeader = {
+  marginBottom: "var(--space-xl)",
+};
+
+const logoContainer = {
+  display: "flex",
+  alignItems: "center",
+  gap: "var(--space-md)",
+  flexWrap: "wrap",
+  marginBottom: "var(--space-sm)",
+};
+
+const logoText = {
+  margin: 0,
+  fontSize: "var(--text-3xl)",
+  fontWeight: 800,
+  color: "var(--text-primary)",
+  letterSpacing: "0.02em",
+};
+
+const logoX = {
+  color: "var(--accent-primary)",
+  fontWeight: 900,
+};
+
+const logoBlue = {
+  background: "linear-gradient(135deg, var(--blue-base), var(--blue-light))",
+  WebkitBackgroundClip: "text",
+  WebkitTextFillColor: "transparent",
+  backgroundClip: "text",
+};
+
+const statusBadge = (color) => ({
+  display: "inline-block",
+  padding: "6px 12px",
+  borderRadius: "var(--radius-full)",
+  fontSize: "var(--text-xs)",
+  fontWeight: 700,
+  backgroundColor: color || "var(--bg-tertiary)",
+  color: "white",
+  letterSpacing: "0.05em",
+  textTransform: "uppercase",
+});
+
+const debugInfo = {
+  fontSize: "var(--text-xs)",
+  color: "var(--text-tertiary)",
+  opacity: 0.5,
+  fontFamily: "var(--font-mono)",
+};
+
+// Centered landing page styles
+const centeredHeader = {
+  textAlign: "center",
+  marginBottom: "var(--space-2xl)",
+};
+
+const centeredLogoText = {
+  margin: 0,
+  fontSize: "clamp(32px, 6vw, 56px)",
+  fontWeight: 800,
+  color: "var(--text-primary)",
+  letterSpacing: "0.02em",
+  lineHeight: 1.2,
+};
+
+const mainTitle = {
+  background: "linear-gradient(135deg, var(--red-light), var(--blue-light))",
+  WebkitBackgroundClip: "text",
+  WebkitTextFillColor: "transparent",
+  backgroundClip: "text",
+  marginBottom: "var(--space-sm)",
+};
+
+const subtitle = {
+  fontSize: "clamp(16px, 3vw, 24px)",
+  fontWeight: 600,
+  color: "var(--text-secondary)",
+  fontStyle: "italic",
+};
+
+const inGameTitle = {
+  background: "linear-gradient(135deg, var(--red-light), var(--blue-light))",
+  WebkitBackgroundClip: "text",
+  WebkitTextFillColor: "transparent",
+  backgroundClip: "text",
+};

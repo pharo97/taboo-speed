@@ -1,5 +1,7 @@
 // web/src/components/Lobby.jsx
 import { useState } from "react";
+import { HomeIcon, LogOutIcon } from "./Icons";
+import Button from "./Button";
 
 export default function Lobby({
   inRoom,
@@ -22,19 +24,20 @@ export default function Lobby({
     if (!nm) return;
 
     onCreateRoom?.(nm);
-    // optional: keep it or clear it
-    // setHostName("");
   }
 
   // HOME
   if (!inRoom) {
     return (
-      <div style={card}>
-        <h3 style={title}>Lobby</h3>
+      <div style={homeCard}>
+        <div style={header}>
+          <HomeIcon size={18} color="var(--text-primary)" />
+          <h4 style={title}>Game Lobby</h4>
+        </div>
 
-        <form onSubmit={handleCreate} style={{ display: "grid", gap: 10 }}>
+        <form onSubmit={handleCreate} style={form}>
           <input
-            placeholder="Your name (host)"
+            placeholder="Enter your nickname..."
             value={hostName}
             onChange={(e) => setHostName(e.target.value)}
             style={input}
@@ -42,38 +45,38 @@ export default function Lobby({
             autoComplete="off"
           />
 
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <button
-              style={btnPrimary}
+          <div style={buttonGroup}>
+            <Button
+              variant="primary"
               type="submit"
               disabled={!hostName.trim()}
+              size="large"
             >
               Create Game
-            </button>
+            </Button>
 
-            <button
-              style={btn}
+            <Button
+              variant="ghost"
               type="button"
               onClick={() => setShowJoin((v) => !v)}
-              aria-expanded={showJoin}
-              aria-controls="join-panel"
+              size="large"
             >
               {showJoin ? "Close Join" : "Join Game"}
-            </button>
+            </Button>
           </div>
 
-          <div style={{ fontSize: 12, opacity: 0.75 }}>
-            Pick a name. It’s not a personality test.
+          <div style={hint}>
+            Pick a nickname to start playing with friends
           </div>
         </form>
 
         {showJoin && (
-          <div id="join-panel" style={{ marginTop: 12 }}>
+          <div id="join-panel" style={joinPanel}>
             {joinForm ? (
               joinForm
             ) : (
-              <div style={{ opacity: 0.8, fontSize: 13 }}>
-                Join form not passed into Lobby yet.
+              <div style={emptyJoin}>
+                Join form not available
               </div>
             )}
           </div>
@@ -85,92 +88,154 @@ export default function Lobby({
   // IN ROOM
   return (
     <div style={card}>
-      <h3 style={title}>Lobby</h3>
+      <div style={header}>
+        <HomeIcon size={18} color="var(--text-primary)" />
+        <h4 style={title}>Room Info</h4>
+      </div>
 
-      <div style={{ lineHeight: 1.6 }}>
-        <div>
-          <strong>roomCode:</strong> <span style={mono}>{roomCode || "-"}</span>
+      <div style={roomInfo}>
+        <div style={roomCodeRow}>
+          <span style={label}>Room Code:</span>
+          <span style={mono}>{roomCode || "-"}</span>
         </div>
-        <div>
-          <strong>status:</strong> {roomStatus || "-"}
+        <div style={roomCodeRow}>
+          <span style={label}>Status:</span>
+          <span>{roomStatus || "-"}</span>
         </div>
-        <div style={{ fontSize: 12, opacity: 0.75 }}>
-          Share the <span style={mono}>{roomCode}</span> with friends.
-          {isHost ? " You’re host, congrats." : null}
+        {isHost && (
+          <div style={hostBadge}>
+            You are the host
+          </div>
+        )}
+        <div style={hint}>
+          Share code <strong style={mono}>{roomCode}</strong> with friends to join
         </div>
       </div>
 
-      <div
-        style={{ display: "flex", gap: 10, marginTop: 12, flexWrap: "wrap" }}
-      >
-        <button
-          style={btnDanger}
+      <div style={buttonGroup}>
+        <Button
+          variant="danger"
           onClick={() => {
             setShowJoin(false);
             onLeaveRoom?.();
           }}
         >
+          <LogOutIcon size={16} color="#fff" />
           Leave Game
-        </button>
+        </Button>
       </div>
     </div>
   );
 }
 
 const card = {
-  border: "1px solid #333",
-  padding: 12,
-  borderRadius: 10,
-  marginBottom: 12,
-  background: "#1a1a1a",
-  color: "#fff",
+  border: "1px solid var(--border-primary)",
+  padding: "var(--space-md)",
+  borderRadius: "var(--radius-md)",
+  marginBottom: "var(--space-md)",
+  background: "var(--bg-card)",
+  color: "var(--text-primary)",
 };
 
-const title = { marginTop: 0, marginBottom: 10, color: "#fff" };
-
-const input = {
-  padding: "12px 14px",
-  borderRadius: 8,
-  border: "1px solid #444",
-  background: "#2a2a2a",
-  color: "#fff",
-  outline: "none",
-  fontSize: 16,
-  minHeight: 44,
+const header = {
+  display: "flex",
+  alignItems: "center",
+  gap: "var(--space-sm)",
+  marginBottom: "var(--space-md)",
 };
 
-const btn = {
-  padding: "12px 16px",
-  borderRadius: 8,
-  border: "1px solid #555",
-  background: "#2a2a2a",
-  color: "#fff",
-  cursor: "pointer",
-  transition: "all 0.2s",
-  fontSize: 14,
-  minHeight: 44,
-};
-
-const btnPrimary = {
-  ...btn,
-  border: "1px solid #fff",
-  background: "#fff",
-  color: "#000",
-  fontWeight: 700,
-};
-
-const btnDanger = {
-  ...btn,
-  border: "1px solid #ef4444",
-  background: "#ef4444",
-  color: "#fff",
+const title = {
+  margin: 0,
+  fontSize: "var(--text-lg)",
+  color: "var(--text-primary)",
   fontWeight: 600,
 };
 
+const form = {
+  display: "grid",
+  gap: "var(--space-md)",
+};
+
+const input = {
+  padding: "var(--space-md)",
+  borderRadius: "var(--radius-md)",
+  border: "1px solid var(--border-secondary)",
+  background: "var(--bg-tertiary)",
+  color: "var(--text-primary)",
+  outline: "none",
+  fontSize: "var(--text-base)",
+  minHeight: "48px",
+  transition: "all 0.2s ease",
+};
+
+const buttonGroup = {
+  display: "flex",
+  gap: "var(--space-sm)",
+  flexWrap: "wrap",
+};
+
+const hint = {
+  fontSize: "var(--text-sm)",
+  color: "var(--text-secondary)",
+  opacity: 0.75,
+};
+
+const joinPanel = {
+  marginTop: "var(--space-md)",
+  padding: "var(--space-md)",
+  border: "1px solid var(--border-primary)",
+  borderRadius: "var(--radius-md)",
+  background: "var(--bg-secondary)",
+};
+
+const emptyJoin = {
+  color: "var(--text-tertiary)",
+  fontSize: "var(--text-sm)",
+  opacity: 0.8,
+};
+
+const roomInfo = {
+  lineHeight: 1.8,
+  marginBottom: "var(--space-md)",
+};
+
+const roomCodeRow = {
+  display: "flex",
+  alignItems: "center",
+  gap: "var(--space-sm)",
+  marginBottom: "var(--space-xs)",
+};
+
+const label = {
+  fontWeight: 600,
+  color: "var(--text-secondary)",
+};
+
 const mono = {
-  fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-  background: "#0a0a0a",
-  padding: "2px 6px",
-  borderRadius: 4,
-  fontSize: 13,
+  fontFamily: "var(--font-mono)",
+  background: "var(--bg-tertiary)",
+  padding: "4px 8px",
+  borderRadius: "var(--radius-sm)",
+  fontSize: "var(--text-sm)",
+  fontWeight: 600,
+  color: "var(--accent-primary)",
+};
+
+const hostBadge = {
+  display: "inline-block",
+  padding: "4px 10px",
+  borderRadius: "var(--radius-full)",
+  background: "var(--accent-glow)",
+  border: "1px solid var(--accent-border)",
+  color: "var(--accent-primary)",
+  fontSize: "var(--text-xs)",
+  fontWeight: 600,
+  marginTop: "var(--space-xs)",
+  marginBottom: "var(--space-xs)",
+};
+
+const homeCard = {
+  ...card,
+  width: "100%",
+  maxWidth: "500px",
 };
