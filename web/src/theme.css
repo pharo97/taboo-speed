@@ -111,6 +111,25 @@
   --bg-card: #0a0f2a;
 }
 
+/* Gold victory theme */
+[data-theme="gold"] {
+  --gold-base: #fbbf24;
+  --gold-light: #fcd34d;
+  --gold-dark: #f59e0b;
+  --gold-glow: rgba(251, 191, 36, 0.3);
+
+  --accent-primary: var(--gold-base);
+  --accent-secondary: var(--gold-light);
+  --accent-glow: var(--gold-glow);
+  --accent-border: var(--gold-base);
+
+  /* Gold-tinted background */
+  --bg-primary: #1a1505;
+  --bg-secondary: #2a2210;
+  --bg-tertiary: #3a3020;
+  --bg-card: #2a2210;
+}
+
 /* Global resets and base styles */
 * {
   box-sizing: border-box;
