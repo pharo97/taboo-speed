@@ -532,6 +532,7 @@ function buildRoomSyncPayload(room) {
     scores: room.scores,
     turn: room.turn,
     hostPlayerToken: room.hostPlayerToken,
+    winningTeam: room.winningTeam || null, // Include winning team for victory state
 
     round: {
       number: room.round.number,
@@ -703,6 +704,7 @@ function endGame(room, winningTeam) {
   clearRoundTimers(room);
 
   room.status = ROOM_STATUS.ENDED;
+  room.winningTeam = winningTeam; // Track winning team for victory state
   room.lastActivity = Date.now();
 
   emitRoomSync(room);
@@ -714,6 +716,43 @@ function endGame(room, winningTeam) {
     fullBoard: room.round.board,
     guessed: room.round.guessed,
   });
+}
+
+// Return room to lobby after game ends
+function returnToLobby(room) {
+  ensureRound(room);
+  ensureScores(room);
+  ensureOffer(room);
+  ensureTurn(room);
+
+  // Clear all game state
+  clearRoundTimers(room);
+  clearOfferTimer(room);
+
+  // Reset game state but keep room intact
+  room.status = ROOM_STATUS.LOBBY;
+  room.scores = { blue: 0, red: 0 };
+  room.winningTeam = null; // Clear victory state
+  room.round = {
+    number: 0,
+    activeTeam: null,
+    clueGiverId: null,
+    clueGiverToken: null,
+    startedAt: null,
+    endsAt: null,
+    board: [],
+    guessed: {},
+    clue: null,
+    offer: null,
+  };
+  room.turn = { nextTeam: "blue" };
+  room.lastActivity = Date.now();
+
+  // Players stay connected, teams preserved
+  // Emit updated room state
+  emitRoomSync(room);
+
+  console.log(`Room ${room.code} returned to lobby`);
 }
 
 // --------------------
@@ -1290,6 +1329,29 @@ io.on("connection", (socket) => {
     } catch (err) {
       console.error("game:end failed:", err);
       cb?.({ ok: false, error: err?.message || "Failed to end game" });
+    }
+  });
+
+  // Return to lobby (after game ends)
+  socket.on("room:returnToLobby", ({ roomCode }, cb) => {
+    try {
+      const rc = String(roomCode || "").trim().toUpperCase();
+      const room = getRoom(rc);
+      if (!room) return cb?.({ ok: false, error: "Room not found" });
+
+      const gate = requireHost(room, socket);
+      if (!gate.ok) return cb?.(gate);
+
+      // Only allow if game has ended
+      if (room.status !== ROOM_STATUS.ENDED) {
+        return cb?.({ ok: false, error: "Can only return to lobby after game ends" });
+      }
+
+      returnToLobby(room);
+      cb?.({ ok: true });
+    } catch (err) {
+      console.error("room:returnToLobby failed:", err);
+      cb?.({ ok: false, error: err?.message || "Failed to return to lobby" });
     }
   });
 

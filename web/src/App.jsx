@@ -490,12 +490,35 @@ export default function App() {
     });
   }
 
+  // Return to lobby after game ends
+  function returnToLobby() {
+    if (!roomCode) return;
+
+    pushLog(`Returning to lobby...`);
+
+    socket.emit("room:returnToLobby", { roomCode }, (resp) => {
+      if (!resp?.ok) {
+        pushLog(`❌ Return to lobby error: ${resp?.error || "unknown"}`);
+      } else {
+        pushLog(`✅ Returned to lobby`);
+        setEndedInfo(null); // Clear ended state
+      }
+    });
+  }
+
   const players = Object.values(room?.playersByToken || {});
   const me = playerToken ? room?.playersByToken?.[playerToken] : null;
   const myTeam = me?.team || null;
 
-  // Determine theme based on player's team
-  const currentTheme = myTeam === "blue" ? "blue" : myTeam === "red" ? "red" : "neutral";
+  // Determine theme based on player's team and winning state
+  const currentTheme =
+    room?.winningTeam && myTeam === room.winningTeam
+      ? "gold"
+      : myTeam === "blue"
+        ? "blue"
+        : myTeam === "red"
+          ? "red"
+          : "neutral";
 
   // Helper to display room status in a user-friendly way
   const getStatusDisplay = (status) => {
@@ -701,6 +724,8 @@ export default function App() {
               onAcceptOffer={acceptOffer}
               onSkipOffer={skipOffer}
               onStartAcceptedRound={startAcceptedRound}
+              onReturnToLobby={returnToLobby}
+              isHost={isHost}
               guessLog={guessLog}
             />
           </div>
