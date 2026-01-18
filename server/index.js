@@ -1396,6 +1396,11 @@ io.on("connection", (socket) => {
       const gate = requireHost(room, socket);
       if (!gate.ok) return cb?.(gate);
 
+      // If game ended, reset to lobby first (new game with 0/0 scores)
+      if (room.status === ROOM_STATUS.ENDED) {
+        returnToLobby(room);
+      }
+
       // Can only start from LOBBY status (not from OFFER, ACCEPTED, RUNNING, etc.)
       if (
         !validateRoomState(room, [ROOM_STATUS.LOBBY, ROOM_STATUS.ROUND_END])

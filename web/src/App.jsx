@@ -676,7 +676,8 @@ export default function App() {
               joinForm={null}
             />
 
-            {room?.status === "lobby" && (
+            {/* Show team picker if player hasn't selected a team, regardless of game status */}
+            {(!me?.team || room?.status === "lobby") && (
               <TeamPicker
                 myTeam={me?.team || ""}
                 onPick={setTeam}
