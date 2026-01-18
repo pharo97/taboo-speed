@@ -1,6 +1,6 @@
 // src/App.jsx
 import { useEffect, useRef, useState, useCallback } from "react";
-import { createSocket, SERVER_URL as BACKEND_URL } from "./socket";
+import { createSocket } from "./socket";
 
 import PageShell from "./components/PageShell";
 import ActivityLog from "./components/ActivityLog";
@@ -20,13 +20,12 @@ export default function App() {
   const [socket, setSocket] = useState(() => createSocket());
 
   const [connected, setConnected] = useState(false);
-  const [socketId, setSocketId] = useState("");
 
   const [roomCode, setRoomCode] = useState(
-    localStorage.getItem("roomCode") || ""
+    localStorage.getItem("roomCode") || "",
   );
   const [playerToken, setPlayerToken] = useState(
-    localStorage.getItem("playerToken") || ""
+    localStorage.getItem("playerToken") || "",
   );
 
   const [room, setRoom] = useState(null);
@@ -44,6 +43,7 @@ export default function App() {
 
   const leavingRef = useRef(false);
   const leaveRoomRef = useRef(null);
+  const activeTeamRef = useRef(null);
 
   const pushLog = useCallback((line) => {
     const t = new Date().toLocaleTimeString();
@@ -115,7 +115,7 @@ export default function App() {
 
     function onConnect() {
       setConnected(true);
-      setSocketId(socket.id);
+
       pushLog(`✅ connected: ${socket.id}`);
 
       const rc = localStorage.getItem("roomCode") || "";
@@ -140,7 +140,7 @@ export default function App() {
               resetLocalIdentity();
               setIsReconnecting(false);
             }
-          }
+          },
         );
       } else {
         setIsReconnecting(false);
@@ -149,7 +149,6 @@ export default function App() {
 
     function onDisconnect(reason) {
       setConnected(false);
-      setSocketId("");
       if (!leavingRef.current) {
         pushLog(`❌ disconnected (${reason || "no reason"})`);
 
@@ -171,6 +170,7 @@ export default function App() {
 
     function onRoomSync(payload) {
       setRoom(payload);
+      activeTeamRef.current = payload?.round?.activeTeam || null;
 
       // Check for player connection changes
       const currentPlayers = payload?.playersByToken || {};
@@ -203,7 +203,7 @@ export default function App() {
         Object.entries(currentPlayers).reduce((acc, [token, player]) => {
           acc[token] = { connected: player.connected };
           return acc;
-        }, {})
+        }, {}),
       );
 
       const offer = payload?.round?.offer || null;
@@ -219,7 +219,7 @@ export default function App() {
       pushLog(
         `📡 room:sync status=${payload?.status} players=${
           Object.keys(payload?.playersByToken || {}).length
-        } offer=${offerStatus} team=${offerTeam} offered=${offered} accepted=${accepted}`
+        } offer=${offerStatus} team=${offerTeam} offered=${offered} accepted=${accepted}`,
       );
     }
 
@@ -233,7 +233,7 @@ export default function App() {
       }
 
       pushLog(
-        `🟢 round:sync #${payload?.round?.number} team=${payload?.round?.activeTeam} role=${payload?.role}`
+        `🟢 round:sync #${payload?.round?.number} team=${payload?.round?.activeTeam} role=${payload?.role}`,
       );
     }
 
@@ -263,7 +263,7 @@ export default function App() {
 
     function onGuessCorrect(payload) {
       pushLog(
-        `✅ guess:correct "${payload?.word}" +${payload?.points} (${payload?.guessedBy})`
+        `✅ guess:correct "${payload?.word}" +${payload?.points} (${payload?.guessedBy})`,
       );
 
       // Add to guess log (we need to get team from room state)
@@ -273,7 +273,7 @@ export default function App() {
           word: payload.word,
           points: payload.points,
           guessedBy: payload.guessedBy,
-          team: room?.round?.activeTeam || "unknown",
+          team: activeTeamRef.current || "unknown",
           timestamp: Date.now(),
         },
       ]);
@@ -292,7 +292,7 @@ export default function App() {
       pushLog(
         `📨 cluegiver:offer team=${
           payload?.team
-        } token=${payload?.offeredToken?.slice?.(0, 6)}...`
+        } token=${payload?.offeredToken?.slice?.(0, 6)}...`,
       );
     }
 
@@ -357,7 +357,7 @@ export default function App() {
         localStorage.setItem("playerToken", resp.playerToken);
         setRoomCode(resp.roomCode);
         setPlayerToken(resp.playerToken);
-      }
+      },
     );
   }
 
@@ -434,7 +434,7 @@ export default function App() {
         pushLog(`👑 host transfer ok=${resp?.ok}`);
         if (!resp?.ok)
           pushLog(`❌ transfer error: ${resp?.error || "unknown"}`);
-      }
+      },
     );
   }
 
@@ -449,7 +449,7 @@ export default function App() {
   function endGame() {
     if (!roomCode) return;
     const confirmed = window.confirm(
-      "Are you sure you want to end the game? Winner will be determined by current score."
+      "Are you sure you want to end the game? Winner will be determined by current score.",
     );
     if (!confirmed) return;
 
@@ -495,7 +495,8 @@ export default function App() {
   const myTeam = me?.team || null;
 
   // Determine theme based on player's team
-  const currentTheme = myTeam === "blue" ? "blue" : myTeam === "red" ? "red" : "neutral";
+  const currentTheme =
+    myTeam === "blue" ? "blue" : myTeam === "red" ? "red" : "neutral";
 
   // Helper to display room status in a user-friendly way
   const getStatusDisplay = (status) => {
@@ -556,12 +557,6 @@ export default function App() {
             </span>
           )}
         </div>
-
-        {!isCentered && (
-          <div style={debugInfo}>
-            Backend: {BACKEND_URL} • {connected ? "CONNECTED" : "DISCONNECTED"} • Socket: {socketId || "-"}
-          </div>
-        )}
       </div>
 
       {/* Offer banner (pending + accepted) */}
@@ -739,18 +734,6 @@ const logoText = {
   letterSpacing: "0.02em",
 };
 
-const logoX = {
-  color: "var(--accent-primary)",
-  fontWeight: 900,
-};
-
-const logoBlue = {
-  background: "linear-gradient(135deg, var(--blue-base), var(--blue-light))",
-  WebkitBackgroundClip: "text",
-  WebkitTextFillColor: "transparent",
-  backgroundClip: "text",
-};
-
 const statusBadge = (color) => ({
   display: "inline-block",
   padding: "6px 12px",
@@ -762,13 +745,6 @@ const statusBadge = (color) => ({
   letterSpacing: "0.05em",
   textTransform: "uppercase",
 });
-
-const debugInfo = {
-  fontSize: "var(--text-xs)",
-  color: "var(--text-tertiary)",
-  opacity: 0.5,
-  fontFamily: "var(--font-mono)",
-};
 
 // Centered landing page styles
 const centeredHeader = {
