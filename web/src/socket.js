@@ -1,11 +1,17 @@
 import { io } from "socket.io-client";
 
-export const SERVER_URL =
-  import.meta.env.VITE_SERVER_URL || "http://localhost:4000";
+const SERVER_URL = import.meta.env.VITE_SERVER_URL;
+
+if (!SERVER_URL) {
+  // Fail loudly so you don't ship a "localhost" build ever again
+  throw new Error(
+    "Missing VITE_SERVER_URL. Set it in Vercel Environment Variables.",
+  );
+}
 
 export function createSocket() {
   return io(SERVER_URL, {
-    transports: ["polling", "websocket"], // allow fallback
+    transports: ["websocket", "polling"], // websocket first, then fallback
     reconnection: true,
     reconnectionAttempts: Infinity,
     reconnectionDelay: 300,
