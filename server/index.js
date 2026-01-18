@@ -5,17 +5,42 @@ const { Server } = require("socket.io");
 const cors = require("cors");
 const crypto = require("crypto");
 
-const { createRoom, getRoom, generateBoard, rooms, ROOM_STATUS } = require("./rooms");
+const {
+  createRoom,
+  getRoom,
+  generateBoard,
+  rooms,
+  ROOM_STATUS,
+} = require("./rooms");
 
 const PORT = process.env.PORT || 4000;
 
 const app = express();
 app.use(cors());
 
+app.get("/", (req, res) => res.send("OK"));
+app.get("/health", (req, res) => res.json({ ok: true }));
+
 const httpServer = http.createServer(app);
 
+const allowedOrigins = [
+  "https://taboo-reborn.vercel.app",
+  "http://localhost:5173", // local dev (Vite default)
+];
+
+app.use(
+  cors({
+    origin: allowedOrigins,
+    credentials: true,
+  }),
+);
+
 const io = new Server(httpServer, {
-  cors: { origin: "*" },
+  cors: {
+    origin: allowedOrigins,
+    methods: ["GET", "POST"],
+    credentials: true,
+  },
 });
 
 // --------------------
@@ -31,10 +56,11 @@ function cleanupInactiveRooms() {
     ensureRound(room);
 
     const allDisconnected = Object.values(room.playersByToken || {}).every(
-      (p) => !p.connected
+      (p) => !p.connected,
     );
 
-    const inactive = now - (room.lastActivity || room.createdAt) > THIRTY_MINUTES;
+    const inactive =
+      now - (room.lastActivity || room.createdAt) > THIRTY_MINUTES;
 
     if (allDisconnected && inactive) {
       console.log(`Cleaning up inactive room: ${code}`);
@@ -106,8 +132,10 @@ function ensureIdentity(room) {
 function ensureSettings(room) {
   room.settings ||= { roundSeconds: 30, targetScore: 300 };
 
-  if (typeof room.settings.roundSeconds !== "number") room.settings.roundSeconds = 30;
-  if (typeof room.settings.targetScore !== "number") room.settings.targetScore = 300;
+  if (typeof room.settings.roundSeconds !== "number")
+    room.settings.roundSeconds = 30;
+  if (typeof room.settings.targetScore !== "number")
+    room.settings.targetScore = 300;
 }
 
 function ensureRotation(room) {
@@ -197,7 +225,9 @@ function clearOfferTimer(room) {
 }
 
 function isRoundRunning(room) {
-  return room?.status === ROOM_STATUS.RUNNING && room?.runtime?.roundRunning === true;
+  return (
+    room?.status === ROOM_STATUS.RUNNING && room?.runtime?.roundRunning === true
+  );
 }
 
 // --------------------
@@ -243,7 +273,9 @@ function allTilesGuessed(room) {
 function getConnectedPlayerTokens(room, excludeToken = null) {
   ensureIdentity(room);
   return Object.entries(room.playersByToken || {})
-    .filter(([token, p]) => p && p.connected && p.socketId && token !== excludeToken)
+    .filter(
+      ([token, p]) => p && p.connected && p.socketId && token !== excludeToken,
+    )
     .map(([token]) => token);
 }
 
@@ -280,7 +312,9 @@ function ensureValidHost(room) {
 
   const host = room.playersByToken[room.hostPlayerToken];
   if (!host.connected || !host.socketId) {
-    const candidate = pickRandom(getConnectedPlayerTokens(room, room.hostPlayerToken));
+    const candidate = pickRandom(
+      getConnectedPlayerTokens(room, room.hostPlayerToken),
+    );
     if (candidate) setHost(room, candidate);
   }
 }
@@ -292,7 +326,9 @@ function maybeTransferHostIfNeeded(room, departingToken = null) {
   const hostMissing = !hostToken || !room.playersByToken[hostToken];
 
   if (hostMissing || hostToken === departingToken) {
-    const candidate = pickRandom(getConnectedPlayerTokens(room, departingToken));
+    const candidate = pickRandom(
+      getConnectedPlayerTokens(room, departingToken),
+    );
     if (candidate) setHost(room, candidate);
   } else {
     ensureValidHost(room);
@@ -318,7 +354,7 @@ function getTeamOrder(room, team) {
 function hasConnectedPlayers(room, team) {
   ensureIdentity(room);
   return Object.values(room.playersByToken || {}).some(
-    (p) => p.team === team && p.connected && p.socketId
+    (p) => p.team === team && p.connected && p.socketId,
   );
 }
 
@@ -351,7 +387,9 @@ function sendCluegiverOffer(room, team) {
 
   // Check if this team has any connected players
   if (!hasConnectedPlayers(room, team)) {
-    console.log(`Team ${team} has no connected players - auto-skipping to other team`);
+    console.log(
+      `Team ${team} has no connected players - auto-skipping to other team`,
+    );
 
     const otherTeam = team === "blue" ? "red" : "blue";
 
@@ -496,7 +534,10 @@ function startRoundNow(room, clueGiverToken) {
   }, 1000);
 
   room.runtime.roundIntervalId = intervalId;
-  room.runtime.roundTimeoutId = setTimeout(() => endRound(room, "time"), durationMs + 50);
+  room.runtime.roundTimeoutId = setTimeout(
+    () => endRound(room, "time"),
+    durationMs + 50,
+  );
 
   return { ok: true };
 }
@@ -608,8 +649,13 @@ function emitRoundSync(room, socketId = null) {
   }
 
   if (clueGiverSocketId) {
-    io.to(clueGiverSocketId).emit("round:sync", buildRoundPayload(room, clueGiverSocketId));
-    io.to(room.code).except(clueGiverSocketId).emit("round:sync", buildRoundPayload(room, null));
+    io.to(clueGiverSocketId).emit(
+      "round:sync",
+      buildRoundPayload(room, clueGiverSocketId),
+    );
+    io.to(room.code)
+      .except(clueGiverSocketId)
+      .emit("round:sync", buildRoundPayload(room, null));
   } else {
     io.to(room.code).emit("round:sync", buildRoundPayload(room, null));
   }
@@ -636,7 +682,10 @@ function pickNewClueGiver(room) {
 
   const activeTeam = room.round.activeTeam;
   const playersArr = Object.values(room.playersByToken || {});
-  let p = playersArr.find((x) => x.team === activeTeam && x.connected && x.socketId) || null;
+  let p =
+    playersArr.find(
+      (x) => x.team === activeTeam && x.connected && x.socketId,
+    ) || null;
 
   if (!p && room.hostPlayerToken) {
     const host = room.playersByToken[room.hostPlayerToken];
@@ -723,7 +772,8 @@ function requireHost(room, socket) {
   ensureIdentity(room);
   const player = getPlayerBySocket(room, socket.id);
   if (!player) return { ok: false, error: "Player not in room" };
-  if (room.hostPlayerToken !== player.token) return { ok: false, error: "Only host can do that" };
+  if (room.hostPlayerToken !== player.token)
+    return { ok: false, error: "Only host can do that" };
   return { ok: true, player };
 }
 
@@ -751,7 +801,9 @@ io.on("connection", (socket) => {
       room.playersByToken[token] = {
         token,
         socketId: socket.id,
-        name: String(name || "Host").trim().slice(0, 40),
+        name: String(name || "Host")
+          .trim()
+          .slice(0, 40),
         team: null,
         joinedAt: Date.now(),
         isHost: true,
@@ -803,7 +855,9 @@ io.on("connection", (socket) => {
   // JOIN ROOM
   socket.on("room:join", ({ roomCode, name }, cb) => {
     try {
-      const rc = String(roomCode || "").trim().toUpperCase();
+      const rc = String(roomCode || "")
+        .trim()
+        .toUpperCase();
       const room = getRoom(rc);
       if (!room) return cb?.({ ok: false, error: "Room not found" });
 
@@ -846,7 +900,9 @@ io.on("connection", (socket) => {
   // REJOIN ROOM
   socket.on("room:rejoin", ({ roomCode, playerToken, name }, cb) => {
     try {
-      const rc = String(roomCode || "").trim().toUpperCase();
+      const rc = String(roomCode || "")
+        .trim()
+        .toUpperCase();
       const room = getRoom(rc);
       if (!room) return cb?.({ ok: false, error: "Room not found" });
 
@@ -892,7 +948,9 @@ io.on("connection", (socket) => {
   // HOST-ONLY SETTINGS (lobby only)
   socket.on("room:settings:set", ({ roomCode, settings }, cb) => {
     try {
-      const rc = String(roomCode || "").trim().toUpperCase();
+      const rc = String(roomCode || "")
+        .trim()
+        .toUpperCase();
       const room = getRoom(rc);
       if (!room) return cb?.({ ok: false, error: "Room not found" });
 
@@ -903,16 +961,27 @@ io.on("connection", (socket) => {
       if (!gate.ok) return cb?.(gate);
 
       if (room.status !== "lobby") {
-        return cb?.({ ok: false, error: "Settings can only be changed in lobby" });
+        return cb?.({
+          ok: false,
+          error: "Settings can only be changed in lobby",
+        });
       }
 
       const roundSeconds = Number(settings?.roundSeconds);
       const targetScore = Number(settings?.targetScore);
 
-      if (!Number.isFinite(roundSeconds) || roundSeconds < 10 || roundSeconds > 300) {
+      if (
+        !Number.isFinite(roundSeconds) ||
+        roundSeconds < 10 ||
+        roundSeconds > 300
+      ) {
         return cb?.({ ok: false, error: "roundSeconds must be 10–300" });
       }
-      if (!Number.isFinite(targetScore) || targetScore < 25 || targetScore > 5000) {
+      if (
+        !Number.isFinite(targetScore) ||
+        targetScore < 25 ||
+        targetScore > 5000
+      ) {
         return cb?.({ ok: false, error: "targetScore must be 25–5000" });
       }
 
@@ -931,7 +1000,9 @@ io.on("connection", (socket) => {
   // TEAM SET
   socket.on("room:team:set", ({ roomCode, team }, cb) => {
     try {
-      const rc = String(roomCode || "").trim().toUpperCase();
+      const rc = String(roomCode || "")
+        .trim()
+        .toUpperCase();
       const room = getRoom(rc);
       if (!room) return cb?.({ ok: false, error: "Room not found" });
 
@@ -940,7 +1011,8 @@ io.on("connection", (socket) => {
       const player = getPlayerBySocket(room, socket.id);
       if (!player) return cb?.({ ok: false, error: "Player not in room" });
 
-      if (team !== "blue" && team !== "red") return cb?.({ ok: false, error: "Invalid team" });
+      if (team !== "blue" && team !== "red")
+        return cb?.({ ok: false, error: "Invalid team" });
 
       player.team = team;
       player.lastSeenAt = Date.now();
@@ -957,7 +1029,9 @@ io.on("connection", (socket) => {
   // HOST: kick player (host-only)
   socket.on("room:kick", ({ roomCode, targetToken, playerToken }, cb) => {
     try {
-      const rc = String(roomCode || "").trim().toUpperCase();
+      const rc = String(roomCode || "")
+        .trim()
+        .toUpperCase();
       const room = getRoom(rc);
       if (!room) return cb?.({ ok: false, error: "Room not found" });
 
@@ -968,22 +1042,32 @@ io.on("connection", (socket) => {
 
       const caller = getPlayerBySocket(room, socket.id);
       if (!caller) return cb?.({ ok: false, error: "Player not in room" });
-      if (room.hostPlayerToken !== caller.token) return cb?.({ ok: false, error: "Only host can kick" });
+      if (room.hostPlayerToken !== caller.token)
+        return cb?.({ ok: false, error: "Only host can kick" });
 
       const tt = String(targetToken || playerToken || "").trim();
       if (!tt) return cb?.({ ok: false, error: "Missing targetToken" });
 
       const target = room.playersByToken?.[tt];
-      if (!target) return cb?.({ ok: false, error: `Player not found (token=${tt.slice(0, 6)}...)` });
-      if (tt === room.hostPlayerToken) return cb?.({ ok: false, error: "Host cannot kick themselves" });
+      if (!target)
+        return cb?.({
+          ok: false,
+          error: `Player not found (token=${tt.slice(0, 6)}...)`,
+        });
+      if (tt === room.hostPlayerToken)
+        return cb?.({ ok: false, error: "Host cannot kick themselves" });
 
       // If target was offered cluegiver, clear offer
-      if (room.round.offer?.status === "pending" && room.round.offer.offeredToken === tt) {
+      if (
+        room.round.offer?.status === "pending" &&
+        room.round.offer.offeredToken === tt
+      ) {
         room.round.offer = null;
         clearOfferTimer(room);
       }
       if (room.round.offer?.status === "accepted") {
-        const accepted = room.round.offer.acceptedToken || room.round.offer.offeredToken;
+        const accepted =
+          room.round.offer.acceptedToken || room.round.offer.offeredToken;
         if (accepted === tt) {
           room.round.offer = null;
           clearOfferTimer(room);
@@ -991,7 +1075,10 @@ io.on("connection", (socket) => {
       }
 
       if (target.socketId) {
-        io.to(target.socketId).emit("room:kicked", { roomCode: room.code, reason: "kicked" });
+        io.to(target.socketId).emit("room:kicked", {
+          roomCode: room.code,
+          reason: "kicked",
+        });
 
         const targetSocket = getSocketById(target.socketId);
         targetSocket?.leave(room.code);
@@ -1022,37 +1109,51 @@ io.on("connection", (socket) => {
   });
 
   // HOST: transfer host (host-only)
-  socket.on("room:host:transfer", ({ roomCode, targetToken, playerToken }, cb) => {
-    try {
-      const rc = String(roomCode || "").trim().toUpperCase();
-      const room = getRoom(rc);
-      if (!room) return cb?.({ ok: false, error: "Room not found" });
+  socket.on(
+    "room:host:transfer",
+    ({ roomCode, targetToken, playerToken }, cb) => {
+      try {
+        const rc = String(roomCode || "")
+          .trim()
+          .toUpperCase();
+        const room = getRoom(rc);
+        if (!room) return cb?.({ ok: false, error: "Room not found" });
 
-      ensureIdentity(room);
+        ensureIdentity(room);
 
-      const caller = getPlayerBySocket(room, socket.id);
-      if (!caller) return cb?.({ ok: false, error: "Player not in room" });
-      if (room.hostPlayerToken !== caller.token) return cb?.({ ok: false, error: "Only host can transfer host" });
+        const caller = getPlayerBySocket(room, socket.id);
+        if (!caller) return cb?.({ ok: false, error: "Player not in room" });
+        if (room.hostPlayerToken !== caller.token)
+          return cb?.({ ok: false, error: "Only host can transfer host" });
 
-      const tt = String(targetToken || playerToken || "").trim();
-      if (!tt) return cb?.({ ok: false, error: "Missing targetToken" });
+        const tt = String(targetToken || playerToken || "").trim();
+        if (!tt) return cb?.({ ok: false, error: "Missing targetToken" });
 
-      const target = room.playersByToken?.[tt];
-      if (!target) return cb?.({ ok: false, error: `Invalid target (token=${tt.slice(0, 6)}...)` });
-      if (!target.connected || !target.socketId) return cb?.({ ok: false, error: "Target must be connected" });
+        const target = room.playersByToken?.[tt];
+        if (!target)
+          return cb?.({
+            ok: false,
+            error: `Invalid target (token=${tt.slice(0, 6)}...)`,
+          });
+        if (!target.connected || !target.socketId)
+          return cb?.({ ok: false, error: "Target must be connected" });
 
-      setHost(room, tt);
-      room.lastActivity = Date.now();
+        setHost(room, tt);
+        room.lastActivity = Date.now();
 
-      emitRoomSync(room);
-      io.to(room.code).emit("host:changed", { roomCode: room.code, hostToken: tt });
+        emitRoomSync(room);
+        io.to(room.code).emit("host:changed", {
+          roomCode: room.code,
+          hostToken: tt,
+        });
 
-      cb?.({ ok: true });
-    } catch (err) {
-      console.error("room:host:transfer failed:", err);
-      cb?.({ ok: false, error: err?.message || "Failed to transfer host" });
-    }
-  });
+        cb?.({ ok: true });
+      } catch (err) {
+        console.error("room:host:transfer failed:", err);
+        cb?.({ ok: false, error: err?.message || "Failed to transfer host" });
+      }
+    },
+  );
 
   // --------------------
   // cluegiver accept/decline + accepted start
@@ -1060,7 +1161,9 @@ io.on("connection", (socket) => {
 
   socket.on("cluegiver:accept", ({ roomCode }, cb) => {
     try {
-      const rc = String(roomCode || "").trim().toUpperCase();
+      const rc = String(roomCode || "")
+        .trim()
+        .toUpperCase();
       const room = getRoom(rc);
       if (!room) return cb?.({ ok: false, error: "Room not found" });
 
@@ -1072,8 +1175,10 @@ io.on("connection", (socket) => {
       if (!player) return cb?.({ ok: false, error: "Player not in room" });
 
       const offer = room.round.offer;
-      if (!offer || offer.status !== "pending") return cb?.({ ok: false, error: "No pending offer" });
-      if (offer.offeredToken !== player.token) return cb?.({ ok: false, error: "Not your offer" });
+      if (!offer || offer.status !== "pending")
+        return cb?.({ ok: false, error: "No pending offer" });
+      if (offer.offeredToken !== player.token)
+        return cb?.({ ok: false, error: "Not your offer" });
 
       // ✅ THIS was missing in your broken file
       offer.status = "accepted";
@@ -1099,16 +1204,23 @@ io.on("connection", (socket) => {
       room.runtime.offerTimeoutId = setTimeout(() => {
         try {
           const currentRoom = getRoom(room.code);
-          if (!currentRoom || currentRoom.status !== ROOM_STATUS.ACCEPTED) return;
+          if (!currentRoom || currentRoom.status !== ROOM_STATUS.ACCEPTED)
+            return;
 
           ensureOffer(currentRoom);
-          if (!currentRoom.round.offer || currentRoom.round.offer.status !== "accepted") return;
+          if (
+            !currentRoom.round.offer ||
+            currentRoom.round.offer.status !== "accepted"
+          )
+            return;
 
           const team = currentRoom.round.offer.team;
           currentRoom.round.offer = null;
           currentRoom.lastActivity = Date.now();
 
-          console.log(`Accepted cluegiver timeout - restarting offer for team ${team}`);
+          console.log(
+            `Accepted cluegiver timeout - restarting offer for team ${team}`,
+          );
           const next = sendCluegiverOffer(currentRoom, team);
           if (!next.ok) {
             currentRoom.status = ROOM_STATUS.LOBBY;
@@ -1128,7 +1240,9 @@ io.on("connection", (socket) => {
 
   socket.on("cluegiver:decline", ({ roomCode }, cb) => {
     try {
-      const rc = String(roomCode || "").trim().toUpperCase();
+      const rc = String(roomCode || "")
+        .trim()
+        .toUpperCase();
       const room = getRoom(rc);
       if (!room) return cb?.({ ok: false, error: "Room not found" });
 
@@ -1144,13 +1258,15 @@ io.on("connection", (socket) => {
 
       const isPending = offer.status === "pending";
       const isAccepted = offer.status === "accepted";
-      if (!isPending && !isAccepted) return cb?.({ ok: false, error: "Offer not declinable" });
+      if (!isPending && !isAccepted)
+        return cb?.({ ok: false, error: "Offer not declinable" });
 
       const allowedToken = isAccepted
-        ? (offer.acceptedToken || offer.offeredToken)
+        ? offer.acceptedToken || offer.offeredToken
         : offer.offeredToken;
 
-      if (allowedToken !== player.token) return cb?.({ ok: false, error: "Not your offer" });
+      if (allowedToken !== player.token)
+        return cb?.({ ok: false, error: "Not your offer" });
 
       const team = offer.team;
 
@@ -1161,7 +1277,10 @@ io.on("connection", (socket) => {
       if (!next.ok) {
         // no one connected on that team
         emitRoomSync(room);
-        return cb?.({ ok: false, error: next.error || "No next cluegiver available" });
+        return cb?.({
+          ok: false,
+          error: next.error || "No next cluegiver available",
+        });
       }
 
       cb?.({ ok: true, pendingOffer: true, offer: room.round.offer });
@@ -1173,7 +1292,9 @@ io.on("connection", (socket) => {
 
   socket.on("round:startAccepted", ({ roomCode }, cb) => {
     try {
-      const rc = String(roomCode || "").trim().toUpperCase();
+      const rc = String(roomCode || "")
+        .trim()
+        .toUpperCase();
       const room = getRoom(rc);
       if (!room) return cb?.({ ok: false, error: "Room not found" });
 
@@ -1193,25 +1314,32 @@ io.on("connection", (socket) => {
       if (!player) return cb?.({ ok: false, error: "Player not in room" });
 
       const offer = room.round.offer;
-      if (!offer || offer.status !== "accepted") return cb?.({ ok: false, error: "No accepted cluegiver yet" });
+      if (!offer || offer.status !== "accepted")
+        return cb?.({ ok: false, error: "No accepted cluegiver yet" });
 
       const acceptedToken = offer.acceptedToken || offer.offeredToken;
-      if (acceptedToken !== player.token) return cb?.({ ok: false, error: "Only accepted cluegiver can start" });
+      if (acceptedToken !== player.token)
+        return cb?.({ ok: false, error: "Only accepted cluegiver can start" });
 
       const res = startRoundNow(room, player.token);
       cb?.(res);
     } catch (err) {
       console.error("round:startAccepted failed:", err);
-      cb?.({ ok: false, error: err?.message || "Failed to start accepted round" });
+      cb?.({
+        ok: false,
+        error: err?.message || "Failed to start accepted round",
+      });
     }
   });
 
   // --------------------
   // round:start (host-only): ONLY sends offer, never starts round
   // --------------------
-    socket.on("round:start", ({ roomCode }, cb) => {
+  socket.on("round:start", ({ roomCode }, cb) => {
     try {
-      const rc = String(roomCode || "").trim().toUpperCase();
+      const rc = String(roomCode || "")
+        .trim()
+        .toUpperCase();
       const room = getRoom(rc);
       if (!room) return cb?.({ ok: false, error: "Room not found" });
 
@@ -1230,14 +1358,22 @@ io.on("connection", (socket) => {
       if (!gate.ok) return cb?.(gate);
 
       // Can only start from LOBBY status (not from OFFER, ACCEPTED, RUNNING, etc.)
-      if (!validateRoomState(room, [ROOM_STATUS.LOBBY, ROOM_STATUS.ROUND_END])) {
-        return cb?.({ ok: false, error: `Can only start from lobby (current: ${room.status})` });
+      if (
+        !validateRoomState(room, [ROOM_STATUS.LOBBY, ROOM_STATUS.ROUND_END])
+      ) {
+        return cb?.({
+          ok: false,
+          error: `Can only start from lobby (current: ${room.status})`,
+        });
       }
 
       const activeTeam = room.turn?.nextTeam || "blue";
 
       // If already pending/accepted, don't spam another offer
-      if (room.round.offer?.status === "pending" || room.round.offer?.status === "accepted") {
+      if (
+        room.round.offer?.status === "pending" ||
+        room.round.offer?.status === "accepted"
+      ) {
         return cb?.({
           ok: true,
           pendingOffer: true,
@@ -1252,7 +1388,10 @@ io.on("connection", (socket) => {
       // Send offer (NO auto-start fallback)
       const res = sendCluegiverOffer(room, activeTeam);
       if (!res.ok) {
-        return cb?.({ ok: false, error: res.error || "No cluegiver available" });
+        return cb?.({
+          ok: false,
+          error: res.error || "No cluegiver available",
+        });
       }
 
       return cb?.({
@@ -1272,7 +1411,9 @@ io.on("connection", (socket) => {
   // --------------------
   socket.on("game:end", ({ roomCode }, cb) => {
     try {
-      const rc = String(roomCode || "").trim().toUpperCase();
+      const rc = String(roomCode || "")
+        .trim()
+        .toUpperCase();
       const room = getRoom(rc);
       if (!room) return cb?.({ ok: false, error: "Room not found" });
 
@@ -1282,8 +1423,12 @@ io.on("connection", (socket) => {
       ensureScores(room);
 
       // Determine winner based on current scores
-      const winningTeam = room.scores.blue > room.scores.red ? "blue" :
-                         room.scores.red > room.scores.blue ? "red" : "tie";
+      const winningTeam =
+        room.scores.blue > room.scores.red
+          ? "blue"
+          : room.scores.red > room.scores.blue
+            ? "red"
+            : "tie";
 
       endGame(room, winningTeam);
       cb?.({ ok: true, winningTeam });
@@ -1296,7 +1441,9 @@ io.on("connection", (socket) => {
   // clue:set
   socket.on("clue:set", ({ roomCode, text }, cb) => {
     try {
-      const rc = String(roomCode || "").trim().toUpperCase();
+      const rc = String(roomCode || "")
+        .trim()
+        .toUpperCase();
       const room = getRoom(rc);
       if (!room) return cb?.({ ok: false, error: "Room not found" });
 
@@ -1331,7 +1478,9 @@ io.on("connection", (socket) => {
   // guess:text
   socket.on("guess:text", ({ roomCode, text }, cb) => {
     try {
-      const rc = String(roomCode || "").trim().toUpperCase();
+      const rc = String(roomCode || "")
+        .trim()
+        .toUpperCase();
       const room = getRoom(rc);
       if (!room) return cb?.({ ok: false, error: "Room not found" });
 
@@ -1357,7 +1506,7 @@ io.on("connection", (socket) => {
 
       const board = room.round?.board || [];
       const tile = board.find(
-        (t) => t.word.toLowerCase() === guess && !room.round.guessed[t.id]
+        (t) => t.word.toLowerCase() === guess && !room.round.guessed[t.id],
       );
 
       if (!tile) return cb?.({ ok: false, incorrect: true });
@@ -1392,7 +1541,9 @@ io.on("connection", (socket) => {
         scores: room.scores,
       };
 
-      activeTeamSockets.forEach((sid) => io.to(sid).emit("guess:correct", payload));
+      activeTeamSockets.forEach((sid) =>
+        io.to(sid).emit("guess:correct", payload),
+      );
 
       cb?.({ ok: true, ...payload });
 
