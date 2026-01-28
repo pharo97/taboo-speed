@@ -1,255 +1,634 @@
-car
-duck
-bird
-food
-eat
-drink
-bed
-sleep
-head
-hand
-foot
-shoe
-hat
-shirt
-pants
-hair
-brush
-comb
-soap
-water
-milk
-juice
-bread
-cheese
-pizza
-fruit
-apple
-pear
-orange
-banana
-egg
-fish
-chicken
-meat
-rice
-soup
-table
-chair
-door
-window
-house
-home
-room
-bedroom
-bathroom
-toilet
-shower
-towel
-mirror
-clock
-watch
-time
-day
-night
-sun
-moon
-star
-sky
-rain
-snow
-ice
-wind
-fire
-tree
-leaf
-flower
-grass
-river
-ocean
-beach
-sand
-rock
-stone
-mountain
-forest
-farm
-animal
-dog
-cat
-horse
-cow
-sheep
-pig
-bear
-monkey
-elephant
-lion
-tiger
-zoo
-park
-city
-town
-street
-road
-bus
-train
-plane
-ticket
-travel
-trip
-holiday
-school
-teacher
-student
-book
-page
-pen
-pencil
-paper
-desk
-classroom
-homework
-test
-exam
-job
-work
-office
-computer
-internet
-website
-phone
-radio
-music
-song
-dance
-movie
-picture
-photo
-camera
-video
-game
-sport
-ball
-soccer
-team
-win
-lose
-play
-run
-jump
-walk
-sit
-stand
-carry
-hold
-push
-pull
-open
-close
-start
-stop
-fast
-slow
-big
-small
-long
-short
-hot
-cold
-warm
-soft
-hard
-heavy
-light
-old
-young
-new
-clean
-dirty
-happy
-sad
-angry
-tired
-hungry
-thirsty
-afraid
-excited
-proud
-jealous
-nervous
-worried
-stress
-emotion
-feeling
-love
-hate
-friend
-enemy
-family
-mother
-father
-parent
-child
-baby
-infant
-husband
-wife
-marriage
-wedding
-promise
-trust
-lie
-truth
-choice
-decision
-freedom
-liberty
-law
-judge
-lawyer
-court
-crime
-prison
-danger
-safety
-protect
-rescue
-violence
-peace
-fair
-unfair
-equal
-power
-control
-politics
-government
-leader
-president
-society
-culture
-custom
-tradition
-history
-science
-biology
-chemistry
-physics
-machine
-technology
-device
-energy
-nature
-life
-death
-future
-past
-change
-growth
-mature
-develop
-success
-failure
-advice
-wisdom
-justice
+Car
+Duck
+Africa
+Sleep
+Brush
+Politics
+Bear
+Sand
+Ticket
+Hawk
+Milk
+Teacher
+Castle
+Internet
+Pizza
+Ring
+Ball
+Wind
+Doctor
+Pyramid
+Monkey
+Shoes
+Camera
+Ocean
+Knife
+Robot
+Rain
+Game
+Chair
+Trust
+River
+Engineer
+Apple
+Night
+Holiday
+Tiger
+Plate
+Justice
+Horse
+City
+Storm
+Watch
+Egg
+School
+Forest
+Window
+Energy
+Love
+Bread
+Satellite
+Music
+Plane
+Lion
+Lawyer
+Mountain
+Friend
+Computer
+Moon
+Train
+Star
+Dog
+Cat
+Fire
+Ice
+Park
+Book
+Phone
+Water
+Family
+Bed
+Table
+Carrot
+Fish
+Chicken
+Rice
+Soup
+Clock
+Mirror
+Sun
+Snow
+Tree
+Flower
+Grass
+Rock
+Farm
+Cow
+Pig
+Elephant
+Zoo
+Street
+Road
+Bus
+Trip
+Student
+Pen
+Paper
+Desk
+Test
+Job
+Office
+Website
+Radio
+Song
+Dance
+Movie
+Photo
+Video
+Sport
+Soccer
+Team
+Run
+Jump
+Walk
+Sit
+Stand
+Carry
+Open
+Close
+Fast
+Slow
+Big
+Small
+Hot
+Cold
+Happy
+Sad
+Angry
+Hungry
+Afraid
+Proud
+Emotion
+Truth
+Freedom
+Judge
+Court
+Prison
+Safety
+Peace
+Power
+Leader
+Culture
+History
+Science
+Technology
+Gooner
+Cuck
+Gyal
+Member
+Giggle
+Bacterial Vaginosis
+Ciroc
+Grabba
+Rexdale
+Yorkdale
+Washington
+Toronto
+Edmonton
+Seattle
+Minnesota
+Somalia
+Uganda
+Egypt
+Jamaica
+United Kingdom
+Trump
+Life
+Death
+Future
+Change
+Success
+Failure
+Wisdom
+Angel
+Alien
+Amazon
+Ambulance
+Antarctica
+Atlantis
+Australia
+Aztec
+Battery
+Beijing
+Berlin
+Bermuda
+Buffalo
+Bugle
+Capital
+Casino
+Centaur
+Chocolate
+Church
+Cliff
+Club
+Comic
+Concert
+Conductor
+Crane
+Cricket
+Crown
+Dinosaur
+Dragon
+Dwarf
+Eagle
+Embassy
+Engine
+Europe
+Genius
+Ghost
+Giant
+Gold
+Greece
+Helicopter
+Himalayas
+Hollywood
+Hospital
+Hotel
+Ice Cream
+India
+Ivory
+Jupiter
+Kangaroo
+Leprechaun
+Limousine
+Loch Ness
+London
+Mammoth
+Microscope
+Millionaire
+Missile
+Moscow
+Ninja
+Octopus
+Olympus
+Opera
+Parachute
+Penguin
+Phoenix
+Pirate
+Platypus
+Poison
+Police
+Princess
+Pumpkin
+Revolution
+Rome
+Roulette
+Saturn
+Scientist
+Scorpion
+Scuba Diver
+Shakespeare
+Shark
+Skyscraper
+Smuggler
+Snowman
+Soldier
+Soul
+Space
+Spell
+Spider
+Spy
+Stadium
+Superhero
+Telescope
+Temple
+Theater
+Thief
+Tokyo
+Tower
+Triangle
+Unicorn
+Vacuum
+Whale
+Witch
+Worm
+Toothbrush
+Microwave
+Backpack
+Flashlight
+Elevator
+Notebook
+Keyboard
+Headphones
+Sneakers
+Sunglasses
+Wallet
+Thermostat
+Umbrella
+Pillow
+Blanket
+Alarm Clock
+Coffee Mug
+Water Bottle
+Recycling Bin
+Laundry Basket
+Extension Cord
+Remote Control
+Sticky Notes
+Whiteboard
+Stapler
+Paper Clip
+Highlighter
+Calculator
+Flash Drive
+Router
+Doorbell
+Ceiling Fan
+Light Switch
+Power Outlet
+Candle
+Picture Frame
+Calendar
+Toolbox
+First Aid Kit
+Suitcase
+Air Mattress
+Ice Pack
+Measuring Tape
+Scissors
+Cutting Board
+Dish Sponge
+Taylor Swift
+Drake
+Beyoncé
+Rihanna
+Kanye West
+Kim Kardashian
+LeBron James
+Michael Jordan
+Lionel Messi
+Cristiano Ronaldo
+Barack Obama
+Donald Trump
+Elon Musk
+Oprah Winfrey
+Jay-Z
+Nicki Minaj
+Kendrick Lamar
+The Weeknd
+Travis Scott
+Ariana Grande
+Justin Bieber
+Billie Eilish
+Doja Cat
+Post Malone
+Cardi B
+Ice Spice
+Snoop Dogg
+Eminem
+50 Cent
+Dwayne Johnson
+Kevin Hart
+Chris Rock
+Dave Chappelle
+Will Smith
+Leonardo DiCaprio
+Brad Pitt
+Johnny Depp
+Tom Cruise
+Scarlett Johansson
+Zendaya
+Margot Robbie
+Ryan Gosling
+Timothée Chalamet
+Taylor Lautner
+Selena Gomez
+Kylie Jenner
+Kendall Jenner
+Khloé Kardashian
+Kourtney Kardashian
+Kris Jenner
+Paris Hilton
+Britney Spears
+Madonna
+Lady Gaga
+Adele
+Ed Sheeran
+Harry Styles
+Zayn Malik
+One Direction
+BTS
+Blackpink
+Netflix
+Disney
+Marvel
+DC Comics
+Star Wars
+Harry Potter
+Game of Thrones
+Breaking Bad
+The Simpsons
+South Park
+Family Guy
+Stranger Things
+The Walking Dead
+Friends
+The Office
+TikTok
+Instagram
+YouTube
+Spotify
+iPhone
+PlayStation
+Xbox
+Fortnite
+Call of Duty
+Minecraft
+Naruto
+Rio de Janeiro
+Dangerous
+Beautiful
+Powerful
+Ancient
+Modern
+Frozen
+Golden
+Silent
+Broken
+Mysterious
+Lonely
+Curious
+Brave
+Gentle
+Fierce
+Marathon
+Basketball
+Soccer
+Tennis
+Swimming
+Boxing
+Wrestling
+Gymnastics
+Surfing
+Skiing
+Volcano
+Desert
+Mountain
+Island
+Canyon
+Jungle
+Valley
+Glacier
+Peninsula
+Lagoon
+Guitar
+Piano
+Drum
+Violin
+Trumpet
+Saxophone
+Flute
+Harmonica
+Accordion
+Microphone
+Rainbow
+Lightning
+Thunder
+Snowflake
+Sunset
+Sunrise
+Eclipse
+Comet
+Aurora
+Meteor
+Diamond
+Gold
+Silver
+Bronze
+Copper
+Iron
+Steel
+Platinum
+Emerald
+Ruby
+Bicycle
+Motorcycle
+Helicopter
+Submarine
+Rocket
+Spaceship
+Jet
+Boat
+Train
+Airplane
+Dragon
+Phoenix
+Unicorn
+Mermaid
+Vampire
+Werewolf
+Zombie
+Ghost
+Witch
+Wizard
+Pizza
+Burger
+Sushi
+Taco
+Pasta
+Curry
+Sandwich
+Salad
+Soup
+Steak
+Coffee
+Tea
+Juice
+Soda
+Water
+Beer
+Wine
+Cocktail
+Smoothie
+Milkshake
+Happy
+Sad
+Angry
+Excited
+Nervous
+Calm
+Scared
+Proud
+Jealous
+Confused
+Doctor
+Lawyer
+Teacher
+Engineer
+Artist
+Musician
+Chef
+Pilot
+Athlete
+Scientist
+Laptop
+Keyboard
+Mouse
+Monitor
+Printer
+Router
+Charger
+Headphones
+Speaker
+Webcam
+Facebook
+Instagram
+Twitter
+TikTok
+Snapchat
+WhatsApp
+Discord
+Reddit
+Amazon
+Netflix
+Summer
+Winter
+Spring
+Autumn
+January
+February
+March
+April
+May
+June
+Morning
+Afternoon
+Evening
+Night
+Midnight
+Dawn
+Dusk
+Twilight
+Noon
+Sunrise
+House
+Building
+Tower
+Castle
+Palace
+Temple
+Bridge
+Tunnel
+Stadium
+Museum
+King
+Queen
+Prince
+Princess
+Knight
+Warrior
+Hero
+Villain
+Leader
+Champion
+Freedom
+Peace
+War
+Victory
+Defeat
+Justice
+Truth
+Power
+Love
+Hope
+Quick
+Slow
+Fast
+Loud
+Quiet
+Hot
+Cold
+Big
+Small
+Tall
+Dance
+Sing
+Jump
+Run
+Walk
+Swim
+Fly
+Climb
+Crawl
+Slide
+Circle
+Square
+Triangle
+Star
+Heart
+Arrow
+Cross
+Diamond
+Spiral
+Oval

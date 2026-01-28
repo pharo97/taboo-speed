@@ -33,23 +33,39 @@ function clamp(n, min, max) {
   return Math.min(Math.max(x, min), max);
 }
 
-function pickRandom(arr, n, usedSet) {
+function pickRandom(arr, n, usedSet, categoryBalance = {}) {
   const pool = arr.filter((x) => !usedSet.has(x.word.toLowerCase()));
 
-  for (let i = pool.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [pool[i], pool[j]] = [pool[j], pool[i]];
+  // If category balance tracking is provided, try to balance categories
+  if (Object.keys(categoryBalance).length > 0) {
+    // Sort pool to prioritize underrepresented categories
+    pool.sort((a, b) => {
+      const countA = categoryBalance[a.category] || 0;
+      const countB = categoryBalance[b.category] || 0;
+      return countA - countB; // Lower count = higher priority
+    });
+  } else {
+    // Shuffle if no balance tracking
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
   }
 
   const chosen = pool.slice(0, n);
-  for (const c of chosen) usedSet.add(c.word.toLowerCase());
+  for (const c of chosen) {
+    usedSet.add(c.word.toLowerCase());
+    if (categoryBalance[c.category] !== undefined) {
+      categoryBalance[c.category]++;
+    }
+  }
   return chosen;
 }
 
 // --------------------
 // BOARD GENERATION
 // --------------------
-function generateBoard(total = 24) {
+function generateBoard(total = 24, gameUsedWords = new Set()) {
   const bank = loadWordBank();
   if (!Array.isArray(bank) || bank.length === 0) {
     throw new Error("Word bank is empty");
@@ -59,22 +75,41 @@ function generateBoard(total = 24) {
   const medium = bank.filter((w) => w.difficulty === "medium");
   const hard = bank.filter((w) => w.difficulty === "hard");
 
-  const used = new Set();
+  // Use game-level used words to prevent repeats across rounds
+  const used = new Set(gameUsedWords);
 
+  // Track category distribution for balanced selection
+  const categoryBalance = {};
+
+  // Reserve 1 spot for the Tripler word (always hard difficulty)
   let wantEasy = 8;
   let wantMedium = 8;
-  let wantHard = 8;
+  let wantHard = 7; // 1 less because we'll add 1 Tripler
 
   if (total !== 24) {
-    wantEasy = Math.round(total / 3);
-    wantMedium = Math.round(total / 3);
-    wantHard = total - wantEasy - wantMedium;
+    const standardWords = total - 1; // Reserve 1 for Tripler
+    wantEasy = Math.round(standardWords / 3);
+    wantMedium = Math.round(standardWords / 3);
+    wantHard = standardWords - wantEasy - wantMedium;
   }
 
   const board = [];
-  board.push(...pickRandom(easy, Math.min(wantEasy, easy.length), used));
-  board.push(...pickRandom(medium, Math.min(wantMedium, medium.length), used));
-  board.push(...pickRandom(hard, Math.min(wantHard, hard.length), used));
+  board.push(...pickRandom(easy, Math.min(wantEasy, easy.length), used, categoryBalance));
+  board.push(...pickRandom(medium, Math.min(wantMedium, medium.length), used, categoryBalance));
+  board.push(...pickRandom(hard, Math.min(wantHard, hard.length), used, categoryBalance));
+
+  // Add exactly ONE Tripler word (must be hard difficulty)
+  const triplerCandidates = hard.filter(w => !used.has(w.word));
+  if (triplerCandidates.length > 0) {
+    const triplerWord = pickRandom(triplerCandidates, 1, used)[0];
+    board.push(triplerWord);
+  } else {
+    // Fallback: if no hard words available, pick from medium
+    const fallbackCandidates = medium.filter(w => !used.has(w.word));
+    if (fallbackCandidates.length > 0) {
+      board.push(pickRandom(fallbackCandidates, 1, used)[0]);
+    }
+  }
 
   const remaining = total - board.length;
   if (remaining > 0) {
@@ -91,12 +126,33 @@ function generateBoard(total = 24) {
   const pointsByDifficulty = { easy: 5, medium: 10, hard: 15 };
   const ts = Date.now();
 
-  return board.map((w, idx) => ({
+  // Map words and mark the last one as Tripler
+  const mappedBoard = board.map((w, idx) => ({
     id: `${ts}-${idx}`,
     word: w.word,
     difficulty: w.difficulty,
     points: pointsByDifficulty[w.difficulty] ?? 10,
+    isTripler: false,
   }));
+
+  // Mark exactly one word as Tripler (25 points)
+  // Choose a random hard word from the board to be the Tripler
+  const hardIndices = mappedBoard
+    .map((w, idx) => (w.difficulty === "hard" ? idx : -1))
+    .filter(idx => idx !== -1);
+
+  if (hardIndices.length > 0) {
+    const triplerIndex = hardIndices[Math.floor(Math.random() * hardIndices.length)];
+    mappedBoard[triplerIndex].isTripler = true;
+    mappedBoard[triplerIndex].points = 25;
+  } else {
+    // Fallback: if no hard words, pick any word
+    const randomIndex = Math.floor(Math.random() * mappedBoard.length);
+    mappedBoard[randomIndex].isTripler = true;
+    mappedBoard[randomIndex].points = 25;
+  }
+
+  return { board: mappedBoard, usedWords: used };
 }
 
 // --------------------
@@ -130,6 +186,7 @@ function createRoom({ settings } = {}) {
 
     scores: { blue: 0, red: 0 },
     turn: { nextTeam: "blue" },
+    usedWords: new Set(), // Track words used during game to prevent repeats
 
     round: {
       number: 0,

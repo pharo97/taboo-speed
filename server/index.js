@@ -472,7 +472,12 @@ function startRoundNow(room, clueGiverToken) {
 
   room.round.startedAt = startedAt;
   room.round.endsAt = endsAt;
-  room.round.board = generateBoard(24);
+
+  // Generate board with used words tracking
+  const { board, usedWords } = generateBoard(24, room.usedWords || new Set());
+  room.round.board = board;
+  room.usedWords = usedWords; // Update room's used words
+
   room.round.guessed = {};
   room.round.clue = null;
 
@@ -733,6 +738,7 @@ function returnToLobby(room) {
   room.status = ROOM_STATUS.LOBBY;
   room.scores = { blue: 0, red: 0 };
   room.winningTeam = null; // Clear victory state
+  room.usedWords = new Set(); // Clear used words for new game
   room.round = {
     number: 0,
     activeTeam: null,
@@ -1125,7 +1131,10 @@ io.on("connection", (socket) => {
       room.lastActivity = Date.now();
 
       // Generate board NOW so cluegiver can see it before starting
-      room.round.board = generateBoard(24);
+      const { board, usedWords } = generateBoard(24, room.usedWords || new Set());
+      room.round.board = board;
+      room.usedWords = usedWords;
+
       room.round.clueGiverToken = player.token;
       room.round.clueGiverId = player.socketId;
       room.round.activeTeam = offer.team;

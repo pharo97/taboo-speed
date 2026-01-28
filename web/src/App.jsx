@@ -560,6 +560,16 @@ export default function App() {
 
   return (
     <PageShell theme={currentTheme} centered={isCentered}>
+      {/* Payment Warning Labels - Only on Home Page */}
+      {isCentered && (
+        <>
+          <div style={warningLabel1}>⚠️ PAY UP! CANDHUUF NEEDS HIS MONEY! ⚠️</div>
+          <div style={warningLabel2}>💰 GAME SHUTTING DOWN SOON 💰</div>
+          <div style={warningLabel3}>🚨 CREATOR DEMANDS COMPENSATION 🚨</div>
+          <div style={warningLabel4}>💸 NO PAY = NO PLAY 💸</div>
+        </>
+      )}
+
       {/* Header */}
       <div style={isCentered ? centeredHeader : appHeader}>
         <div style={logoContainer}>
@@ -831,4 +841,73 @@ const inGameTitle = {
   WebkitBackgroundClip: "text",
   WebkitTextFillColor: "transparent",
   backgroundClip: "text",
+};
+
+// Payment warning label styles
+const warningLabel1 = {
+  position: "fixed",
+  top: "20px",
+  left: "20px",
+  backgroundColor: "#ff0000",
+  color: "#ffff00",
+  padding: "8px 16px",
+  borderRadius: "8px",
+  fontWeight: 900,
+  fontSize: "14px",
+  border: "3px solid #ffff00",
+  transform: "rotate(-5deg)",
+  boxShadow: "0 4px 8px rgba(0,0,0,0.5)",
+  zIndex: 9999,
+  animation: "pulse 1.5s infinite",
+};
+
+const warningLabel2 = {
+  position: "fixed",
+  top: "20px",
+  right: "20px",
+  backgroundColor: "#ffaa00",
+  color: "#000",
+  padding: "8px 16px",
+  borderRadius: "8px",
+  fontWeight: 900,
+  fontSize: "14px",
+  border: "3px solid #000",
+  transform: "rotate(5deg)",
+  boxShadow: "0 4px 8px rgba(0,0,0,0.5)",
+  zIndex: 9999,
+  animation: "pulse 2s infinite",
+};
+
+const warningLabel3 = {
+  position: "fixed",
+  bottom: "20px",
+  left: "20px",
+  backgroundColor: "#ff00ff",
+  color: "#fff",
+  padding: "8px 16px",
+  borderRadius: "8px",
+  fontWeight: 900,
+  fontSize: "14px",
+  border: "3px solid #fff",
+  transform: "rotate(3deg)",
+  boxShadow: "0 4px 8px rgba(0,0,0,0.5)",
+  zIndex: 9999,
+  animation: "pulse 1.8s infinite",
+};
+
+const warningLabel4 = {
+  position: "fixed",
+  bottom: "20px",
+  right: "20px",
+  backgroundColor: "#00ff00",
+  color: "#000",
+  padding: "8px 16px",
+  borderRadius: "8px",
+  fontWeight: 900,
+  fontSize: "14px",
+  border: "3px solid #000",
+  transform: "rotate(-3deg)",
+  boxShadow: "0 4px 8px rgba(0,0,0,0.5)",
+  zIndex: 9999,
+  animation: "pulse 2.2s infinite",
 };
