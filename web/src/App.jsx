@@ -576,11 +576,11 @@ export default function App() {
           <h1 style={isCentered ? centeredLogoText : logoText}>
             {isCentered ? (
               <>
-                <div style={mainTitle}>Candhuuf's Taboo</div>
+                <div style={mainTitle}>TABOO: REBORN</div>
                 <div style={subtitle}>For the Clubhouse fiends</div>
               </>
             ) : (
-              <span style={inGameTitle}>Candhuuf's Taboo</span>
+              <span style={inGameTitle}>TABOO: REBORN</span>
             )}
           </h1>
           {inRoom && (
